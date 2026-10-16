@@ -1,33 +1,43 @@
 {% extends "theme/base.html" %}
 {% block content %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   .eta-card { background:#fff; border:1px solid var(--tblr-border-color); border-radius:14px; box-shadow:var(--tblr-shadow-card); overflow:hidden; }
   .eta-time { font-size:2rem; font-weight:800; letter-spacing:-.03em; line-height:1; color:#1c1e36; }
   .vt-btn-red { background:#C1121F; border-color:#C1121F; color:#fff; font-weight:700; }
   .vt-btn-red:hover { background:#a50e1b; border-color:#a50e1b; color:#fff; }
+  #eta-map { height: 340px; z-index: 1; }
+  .pulse-dot { display:inline-block; width:.6rem; height:.6rem; border-radius:50%; background:#22c55e; box-shadow:0 0 0 0 rgba(34,197,94,.6); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0% { box-shadow:0 0 0 0 rgba(34,197,94,.55); } 70% { box-shadow:0 0 0 8px rgba(34,197,94,0); } 100% { box-shadow:0 0 0 0 rgba(34,197,94,0); } }
 </style>
 
 <div class="container-xl">
-  <div class="text-center mx-auto mb-3" style="max-width:44rem;">
+  <div class="text-center mx-auto mb-3" style="max-width:46rem;">
     <div class="page-pretitle">Passenger ETA Board &bull; No login needed</div>
     <h2 class="mb-1 fw-bold" style="letter-spacing:-.02em;">When is my Ceres coming?</h2>
-    <div class="text-muted">Going <strong>{{ origin_name }}</strong> → <strong>{{ dest_name }}</strong>?
-      Check the assigned liners and their estimated arrival before leaving home.</div>
+    <div class="text-muted">Waiting in <strong>{{ waiting_name }}</strong> for
+      <strong>{{ origin_name }}</strong> → <strong>{{ dest_name }}</strong>?
+      Watch the bus approach on the map, and book your seat when it is within reach.</div>
   </div>
 
   <div class="eta-card p-3 mb-3">
     <form method="GET" class="d-flex flex-column flex-md-row align-items-stretch align-items-md-end justify-content-center gap-2">
-      <div style="min-width:200px;" class="flex-grow-1">
-        <label class="form-label">From (where you will wait)</label>
-        <select name="from" class="form-select" onchange="this.form.submit()">
+      <div class="flex-grow-1">
+        <label class="form-label">From</label>
+        <select name="from" class="form-select">
           {% for t in terminals %}<option value="{{ t.name }}" {% if t.name == origin_name %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
         </select>
       </div>
-      <button type="button" class="btn btn-outline-secondary" id="swapTerminals" title="Swap origin and destination"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
-      <div style="min-width:200px;" class="flex-grow-1">
-        <label class="form-label">To (where you are going)</label>
-        <select name="to" class="form-select" onchange="this.form.submit()">
+      <div class="flex-grow-1">
+        <label class="form-label">To</label>
+        <select name="to" class="form-select">
           {% for t in terminals %}<option value="{{ t.name }}" {% if t.name == dest_name %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="flex-grow-1">
+        <label class="form-label">I am waiting in</label>
+        <select name="waiting" class="form-select">
+          {% for t in terminals %}<option value="{{ t.name }}" {% if t.name == waiting_name %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
         </select>
       </div>
       <button type="submit" class="btn vt-btn-red"><i class="fa-solid fa-magnifying-glass me-1"></i> Check arrival</button>
@@ -39,6 +49,19 @@
   <div class="alert alert-warning" role="alert">{{ error }}</div>
   {% endif %}
 
+  {% if results %}
+  <div class="eta-card mb-3">
+    <div class="px-3 py-2 d-flex align-items-center gap-2 flex-wrap" style="border-bottom:1px solid var(--tblr-border-color);">
+      <span class="pulse-dot"></span>
+      <strong>Live map — buses heading to {{ waiting_name }}</strong>
+      <span class="text-muted small ms-auto">Green pin is where you are waiting</span>
+    </div>
+    <div id="eta-map"></div>
+  </div>
+  {% endif %}
+
+  <div id="bookAlert"></div>
+
   <div class="row g-3">
     {% for r in results %}
     <div class="col-md-6 col-lg-4">
@@ -48,28 +71,42 @@
             <div class="fw-bold fs-3">{{ r.bus_number }}</div>
             <div class="text-muted small">{{ r.plate_number }} &bull; {{ r.route }}</div>
           </div>
-          {% if r.seats_left <= 0 %}
-          <span class="badge bg-danger text-white">FULL</span>
-          {% else %}
-          <span class="badge bg-success-lt text-success">{{ r.seats_left }} seats free</span>
-          {% endif %}
+          <div class="text-end">
+            {% if r.seats_free <= 0 %}
+            <span class="badge bg-danger text-white">FULL</span>
+            {% else %}
+            <span class="badge bg-success-lt text-success">{{ r.seats_free }} seats free</span>
+            {% endif %}
+            {% if r.nearby and r.seats_free > 0 %}
+            <span class="d-block mt-1"><span class="badge bg-success text-white"><span class="pulse-dot me-1" style="background:#fff;"></span>Bus nearby — book now</span></span>
+            {% endif %}
+          </div>
         </div>
-        <div class="eta-time">{{ r.eta.label|default:"—" }}</div>
-        {% if r.eta %}
-          {% if r.eta.minutes > 0 %}
-          <div class="text-muted">Expected arrival <strong class="text-dark">{{ r.eta.eta|date:"g:i A" }}</strong> in {{ dest_name }} &bull; {{ r.eta.detail }}</div>
+        <div class="eta-time">{{ r.eta_wait.label|default:"—" }}</div>
+        {% if r.eta_wait %}
+          {% if r.eta_wait.minutes > 0 %}
+          <div class="text-muted">Reaches <strong class="text-dark">{{ waiting_name }}</strong> around <strong class="text-dark">{{ r.eta_wait.eta|date:"g:i A" }}</strong> &bull; {{ r.eta_wait.detail }}</div>
           {% else %}
-          <div class="text-success fw-semibold"><i class="fa-solid fa-circle-check me-1"></i>{{ r.eta.detail }} — head to the terminal now.</div>
+          <div class="text-success fw-semibold"><i class="fa-solid fa-circle-check me-1"></i>At your waiting place — head out now.</div>
           {% endif %}
         {% else %}
         <div class="text-muted">No position available for this bus yet.</div>
         {% endif %}
         <div class="text-muted small"><i class="fa-solid fa-location-dot me-1" style="color:#C1121F;"></i>{{ r.current_location }} &bull; {{ r.movement_display }}{% if r.is_approx %} (approx.){% endif %}</div>
+        {% if r.eta_dest and r.eta_dest.minutes > 0 %}
+        <div class="text-muted small">Final arrival {{ dest_name }}: {{ r.eta_dest.eta|date:"g:i A" }}</div>
+        {% endif %}
         {% if r.trip %}
-        <div class="small pt-2 mt-auto" style="border-top:1px solid var(--tblr-border-color);">
-          <i class="fa-regular fa-clock me-1 text-muted"></i>Scheduled {{ r.trip.scheduled }} &bull; {{ r.trip.status }}
+        <div class="small text-muted"><i class="fa-regular fa-clock me-1"></i>Scheduled {{ r.trip.scheduled }} &bull; {{ r.trip.status }}
           {% if r.trip.is_late %}<span class="badge bg-danger-lt text-danger ms-1">+{{ r.trip.delay }} min late</span>{% endif %}
         </div>
+        {% endif %}
+        {% if r.seats_free > 0 %}
+        <button type="button" class="btn vt-btn-red w-100 mt-auto book-btn"
+          data-bus-id="{{ r.bus_id }}" data-bus-number="{{ r.bus_number }}"
+          data-pickup="{{ waiting_name }}" data-max="{{ r.seats_free }}">
+          <i class="fa-solid fa-ticket me-1"></i> Book seat{% if r.seats_free != 1 %}s{% endif %} on {{ r.bus_number }}
+        </button>
         {% endif %}
       </div>
     </div>
@@ -86,17 +123,98 @@
     {% endfor %}
   </div>
 </div>
+
+<div class="modal modal-blur fade" id="bookModal" tabindex="-1">
+  <div class="modal-dialog modal-md modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="bookModalTitle">Book seats</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form id="bookForm">{% csrf_token %}
+      <input type="hidden" name="bus" id="book_bus_id">
+      <input type="hidden" name="pickup" id="book_pickup">
+      <div class="modal-body">
+        <div id="bookFormError" class="alert alert-danger d-none"></div>
+        <div id="bookSuccess" class="alert alert-success d-none"></div>
+        <div class="row g-3" id="bookFields">
+          <div class="col-12"><label class="form-label">Your name</label><input type="text" name="passenger_name" id="book_name" class="form-control" placeholder="e.g. Maria Santos" required></div>
+          <div class="col-6"><label class="form-label">Contact number</label><input type="text" name="contact" id="book_contact" class="form-control" placeholder="e.g. 0917 123 4567" required></div>
+          <div class="col-6"><label class="form-label">Seats</label><input type="number" name="seats" id="book_seats" class="form-control" min="1" value="1" required><div class="form-hint" id="bookSeatsHint"></div></div>
+          <div class="col-12 text-muted small">Boarding at <strong id="bookPickupLabel"></strong>. The driver / conductor will be notified of your booking.</div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn vt-btn-red" id="bookSubmitBtn">Confirm booking</button></div>
+    </form>
+  </div></div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script id="eta-data" type="application/json">{{ map_json|safe }}</script>
 <script>
 (function() {
-  document.getElementById('swapTerminals').addEventListener('click', function() {
-    const form = this.closest('form');
-    const from = form.querySelector('select[name="from"]');
-    const to = form.querySelector('select[name="to"]');
-    const tmp = from.value; from.value = to.value; to.value = tmp;
-    form.submit();
+  // Live mini-map: bus pins + green waiting-place pin.
+  try {
+    const data = JSON.parse(document.getElementById('eta-data').textContent);
+    if (document.getElementById('eta-map') && (data.buses.length || data.waiting)) {
+      const map = L.map('eta-map', { minZoom: 5 }).setView([12.8797, 121.7740], 6);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' }).addTo(map);
+      const bounds = [];
+      data.buses.forEach(function(b) {
+        if (b.lat == null || b.lng == null) return;
+        const icon = L.divIcon({ className: '', html: '<div style="background:#C1121F;color:#fff;border:2px solid #fff;border-radius:8px;min-width:30px;height:24px;padding:0 4px;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;box-shadow:0 4px 10px rgba(0,0,0,.35);">' + b.bus_number + '</div>', iconSize: [40, 24], iconAnchor: [20, 12] });
+        L.marker([b.lat, b.lng], { icon: icon }).addTo(map)
+          .bindPopup('<b>' + b.bus_number + '</b><br>' + b.route + '<br>' + b.seats_free + ' seats free');
+        bounds.push([b.lat, b.lng]);
+      });
+      if (data.waiting) {
+        const w = data.waiting;
+        const wicon = L.divIcon({ className: '', html: '<div style="background:#22c55e;color:#fff;border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(0,0,0,.35);"><i class="fa-solid fa-person"></i></div>', iconSize: [30, 30], iconAnchor: [15, 15] });
+        L.marker([w.lat, w.lng], { icon: wicon }).addTo(map).bindPopup('<b>You are waiting here</b><br>' + w.name);
+        bounds.push([w.lat, w.lng]);
+      }
+      if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+    }
+  } catch (e) { /* map optional if data missing */ }
+
+  // Booking modal.
+  const bookModal = new bootstrap.Modal(document.getElementById('bookModal'));
+  const form = document.getElementById('bookForm');
+  const errBox = document.getElementById('bookFormError');
+  const okBox = document.getElementById('bookSuccess');
+  document.querySelectorAll('.book-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById('book_bus_id').value = btn.getAttribute('data-bus-id');
+      document.getElementById('book_pickup').value = btn.getAttribute('data-pickup');
+      document.getElementById('bookPickupLabel').textContent = btn.getAttribute('data-pickup');
+      document.getElementById('bookModalTitle').textContent = 'Book seats on ' + btn.getAttribute('data-bus-number');
+      const max = parseInt(btn.getAttribute('data-max'), 10) || 1;
+      const seats = document.getElementById('book_seats');
+      seats.max = max; seats.value = 1;
+      document.getElementById('bookSeatsHint').textContent = max + ' seat(s) left on this bus.';
+      errBox.classList.add('d-none'); okBox.classList.add('d-none');
+      document.getElementById('bookFields').classList.remove('d-none');
+      document.getElementById('bookSubmitBtn').classList.remove('d-none');
+      bookModal.show();
+    });
+  });
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    fetch('{% url "bookings:booking_create_ajax" %}', { method: 'POST', headers: { 'X-CSRFToken': document.querySelector('#bookForm [name=csrfmiddlewaretoken]').value }, body: new FormData(form) })
+      .then(r => r.json().then(d => ({ ok: r.ok, d: d }))).then(function(res) {
+        if (!res.ok) { errBox.textContent = res.d.error || 'Could not save booking.'; errBox.classList.remove('d-none'); return; }
+        const d = res.d;
+        let crew = 'The dispatcher has your booking on file.';
+        if (d.crew && d.crew.length) {
+          crew = d.crew.map(c => c.role + ' ' + c.name + (c.contact && c.contact !== '—' ? ' (' + c.contact + ')' : '')).join(' and ') + ' ha(s/ve) been notified — they will expect you at ' + d.pickup + '.';
+        }
+        document.getElementById('bookFields').classList.add('d-none');
+        document.getElementById('bookSubmitBtn').classList.add('d-none');
+        okBox.innerHTML = '<strong>Booked! Reference: ' + d.reference + '</strong><br>' +
+          d.seats + ' seat(s) on bus ' + d.bus_number + ', boarding at ' + d.pickup + '.<br>' + crew;
+        okBox.classList.remove('d-none');
+        const alert = document.getElementById('bookAlert');
+        if (alert) { alert.innerHTML = ''; }
+        setTimeout(function() { window.location.reload(); }, 6000);
+      }).catch(() => { errBox.textContent = 'Something went wrong. Please try again.'; errBox.classList.remove('d-none'); });
   });
   setTimeout(function() { window.location.reload(); }, 60000);
 })();

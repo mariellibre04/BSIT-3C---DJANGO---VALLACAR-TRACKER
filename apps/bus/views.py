@@ -52,6 +52,8 @@ TERMINALS = [
     {'name': 'Escalante', 'keywords': ('escalante',), 'lat': 10.8333, 'lng': 123.5000},
     {'name': 'Sipalay', 'keywords': ('sipalay',), 'lat': 9.7500, 'lng': 122.4000},
     {'name': 'Himamaylan', 'keywords': ('himamaylan',), 'lat': 10.1003, 'lng': 122.8702},
+    {'name': 'Hinigaran', 'keywords': ('hinigaran',), 'lat': 10.0417, 'lng': 122.8567},
+    {'name': 'Binalbagan', 'keywords': ('binalbagan',), 'lat': 10.0739, 'lng': 122.8667},
     {'name': 'Bais', 'keywords': ('bais',), 'lat': 9.5917, 'lng': 123.1222},
     {'name': 'Tanjay', 'keywords': ('tanjay',), 'lat': 9.5167, 'lng': 123.1583},
     {'name': 'Bayawan', 'keywords': ('bayawan',), 'lat': 9.3667, 'lng': 122.8000},
@@ -446,25 +448,33 @@ def passenger_eta_page(request):
     liners on that route with estimated arrival — no more waiting all day.
 
     Read-only and public (no login) so riders can check before leaving home.
+
+    Riders pick where they are waiting; each assigned bus shows its live
+    position, estimated arrival at the waiting place, free seats, and a
+    Book button. Bookings notify the assigned driver / conductor.
     """
+    import json
+    from apps.bookings.models import active_holds
     from apps.trips.models import Trip
 
     origin_name = request.GET.get('from', '').strip() or 'Kabankalan'
     dest_name = request.GET.get('to', '').strip() or 'Bacolod'
+    waiting_name = request.GET.get('waiting', '').strip() or origin_name
     origin = terminal_by_name(origin_name)
     dest = terminal_by_name(dest_name)
+    waiting = terminal_by_name(waiting_name)
 
     results, error = [], None
     today = timezone.localdate()
     now = timezone.now()
-    if origin is None or dest is None:
-        error = 'Please select a valid origin and destination.'
+    if origin is None or dest is None or waiting is None:
+        error = 'Please select a valid origin, destination, and waiting place.'
     elif origin['name'] == dest['name']:
         error = 'Origin and destination must be different terminals.'
     else:
         buses = list(
             Bus.objects.annotate(total_passengers=Count('passengers'))
-            .filter(status__in=[Bus.STATUS_ACTIVE, Bus.STATUS_MAINTENANCE])
+            .filter(status=Bus.STATUS_ACTIVE)
             .order_by('bus_number')
         )
         for b in buses:
@@ -474,7 +484,9 @@ def passenger_eta_page(request):
                 continue
             occupied = b.total_passengers or 0
             lat, lng, is_approx = bus_map_coords(b)
-            eta = estimate_arrival(lat, lng, dest['lat'], dest['lng'], b.movement_status)
+            eta_wait = estimate_arrival(lat, lng, waiting['lat'], waiting['lng'], b.movement_status)
+            eta_dest = estimate_arrival(lat, lng, dest['lat'], dest['lng'], b.movement_status)
+            seats_free = max(0, b.capacity - occupied - active_holds(b.id))
             trip = (Trip.objects.filter(bus=b, scheduled_departure__date=today)
                     .order_by('scheduled_departure'))
             upcoming = trip.filter(scheduled_departure__gte=now).first() or trip.last()
@@ -488,18 +500,27 @@ def passenger_eta_page(request):
                     'is_late': upcoming.status in (Trip.STATUS_DELAYED, Trip.STATUS_REROUTED, Trip.STATUS_UNEXPECTED_STOP),
                     'delay': upcoming.delay_minutes,
                 }
+            nearby = bool(eta_wait and eta_wait['minutes'] <= 45)
             results.append({
-                'bus_number': b.bus_number, 'plate_number': b.plate_number,
+                'bus_id': b.id, 'bus_number': b.bus_number, 'plate_number': b.plate_number,
                 'route': b.route, 'current_location': b.current_location or b.route,
                 'movement_display': b.get_movement_status_display(),
-                'is_approx': is_approx, 'capacity': b.capacity,
-                'occupied': occupied, 'seats_left': max(0, b.capacity - occupied),
-                'eta': eta, 'trip': trip_info,
+                'is_approx': is_approx, 'lat': lat, 'lng': lng,
+                'capacity': b.capacity, 'occupied': occupied, 'seats_free': seats_free,
+                'eta_wait': eta_wait, 'eta_dest': eta_dest, 'nearby': nearby, 'trip': trip_info,
             })
-        results.sort(key=lambda r: (r['eta'] is None, r['eta']['minutes'] if r['eta'] else 0))
+        results.sort(key=lambda r: (r['eta_wait'] is None, r['eta_wait']['minutes'] if r['eta_wait'] else 0))
+
+    map_json = json.dumps({
+        'waiting': {'name': waiting['name'], 'lat': waiting['lat'], 'lng': waiting['lng']} if waiting else None,
+        'buses': [{'bus_number': r['bus_number'], 'route': r['route'], 'lat': r['lat'], 'lng': r['lng'],
+                   'seats_free': r['seats_free'], 'is_approx': r['is_approx']} for r in results],
+    })
 
     return render(request, 'bus/eta.html', {
         'terminals': TERMINALS, 'origin_name': origin['name'] if origin else origin_name,
         'dest_name': dest['name'] if dest else dest_name,
+        'waiting_name': waiting['name'] if waiting else waiting_name,
         'results': results, 'error': error, 'today': today, 'now': timezone.localtime(now),
+        'map_json': map_json,
     })

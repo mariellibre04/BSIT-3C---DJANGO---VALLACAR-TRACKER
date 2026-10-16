@@ -31,6 +31,7 @@ urlpatterns = [
     path('maintenance/', include('apps.maintenance.urls')),
     path('trips/', include('apps.trips.urls')),
     path('incidents/', include('apps.incidents.urls')),
+    path('bookings/', include('apps.bookings.urls')),
 ]
 
 if settings.DEBUG:

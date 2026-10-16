@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'apps.maintenance',
     'apps.trips',
     'apps.incidents',
+    'apps.bookings',
 ]
 
 MIDDLEWARE = [
