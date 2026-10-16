@@ -87,7 +87,7 @@ WSGI_APPLICATION = 'mysite.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'bsitcrud',
+        'NAME': 'vallacar_db',
         'USER': 'root',
         'PASSWORD': '',
         'HOST': 'localhost',

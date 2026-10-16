@@ -12,7 +12,7 @@
 </style>
 
 <div class="container-xl">
-  <div class="text-center mx-auto mb-3" style="max-width:46rem;">
+  <div id="eta-search" class="text-center mx-auto mb-3" style="max-width:46rem;scroll-margin-top:1rem;">
     <div class="page-pretitle">Passenger ETA Board &bull; No login needed</div>
     <h2 class="mb-1 fw-bold" style="letter-spacing:-.02em;">When is my Ceres coming?</h2>
     <div class="text-muted">Waiting in <strong>{{ waiting_name }}</strong> for
@@ -137,7 +137,7 @@
           <div class="col-12"><label class="form-label">Your name</label><input type="text" name="passenger_name" id="book_name" class="form-control" placeholder="e.g. Maria Santos" required></div>
           <div class="col-6"><label class="form-label">Contact number</label><input type="text" name="contact" id="book_contact" class="form-control" placeholder="e.g. 0917 123 4567" required></div>
           <div class="col-6"><label class="form-label">Seats</label><input type="number" name="seats" id="book_seats" class="form-control" min="1" value="1" required><div class="form-hint" id="bookSeatsHint"></div></div>
-          <div class="col-12 text-muted small">Boarding at <strong id="bookPickupLabel"></strong>. The driver / conductor will be notified of your booking.</div>
+          <div class="col-12 text-muted small">Boarding at <strong id="bookPickupLabel"></strong>. The driver / conductor will be notified of your booking. Free seat reservation — no payment needed.</div>
         </div>
       </div>
       <div class="modal-footer"><button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn vt-btn-red" id="bookSubmitBtn">Confirm booking</button></div>

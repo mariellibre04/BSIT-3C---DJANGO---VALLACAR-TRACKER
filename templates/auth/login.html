@@ -17,12 +17,35 @@
   <link href="{% static 'css/tabler-marketing.css' %}" rel="stylesheet" />
   <link href="{% static 'css/tabler-themes.css' %}" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    #welcomeGate {
+      position: fixed; inset: 0; z-index: 2000;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1rem;
+      background: rgba(28, 30, 54, .55);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      opacity: 1; transition: opacity .35s ease;
+    }
+    #welcomeGate.hide { opacity: 0; pointer-events: none; }
+    #welcomeGate .welcome-gate-card { width: 100%; max-width: 42rem; animation: gatePop .35s ease; transition: transform .35s ease; }
+    #welcomeGate.hide .welcome-gate-card { transform: scale(.96); }
+    #welcomeGate .ceres-welcome { margin-bottom: 0; }
+    @keyframes gatePop { from { transform: scale(.96) translateY(10px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+    body.gate-open { overflow: hidden; }
+  </style>
 </head>
 
 <body>
   <script src="{% static 'js/tabler-theme.js' %}"></script>
+  <!-- Welcome greeting: appears before entering username and password -->
+  <div id="welcomeGate">
+    <div class="welcome-gate-card">
+      {% include 'theme/ceres_welcome.html' with btn_href='#signin-card' %}
+    </div>
+  </div>
   <div class="page page-center">
-    <div class="container container-tight py-4">
+    <div class="container container-tight py-4" id="signin-card" style="scroll-margin-top:1rem;">
 
      <div class="card card-md">
       <div class="card-body">
@@ -159,6 +182,27 @@
 
     checkItems();
   });
+</script>
+<script>
+(function() {
+  var gate = document.getElementById('welcomeGate');
+  if (!gate) return;
+  document.body.classList.add('gate-open');
+  function enter(e) {
+    if (e) e.preventDefault();
+    gate.classList.add('hide');
+    document.body.classList.remove('gate-open');
+    setTimeout(function() {
+      gate.remove();
+      var card = document.getElementById('signin-card');
+      if (card) card.scrollIntoView({ behavior: 'smooth' });
+      var user = document.querySelector('input[name="username"]');
+      if (user) user.focus({ preventScroll: true });
+    }, 380);
+  }
+  var btn = gate.querySelector('a.ceres-btn');
+  if (btn) btn.addEventListener('click', enter);
+})();
 </script>
 </body>
 </html>

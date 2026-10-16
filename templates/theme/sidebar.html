@@ -180,22 +180,28 @@
         </li>
 
         <li class="nav-item mt-auto dh-nav-sidebar-footer">
+          {% if user.is_authenticated %}
           <div class="dh-user-card">
             <a href="{% url 'users:user_list' %}" class="d-flex align-items-center gap-2 text-decoration-none text-white min-w-0 w-100">
               <span class="dh-avatar">{{ user.username|first|upper }}</span>
               <span class="min-w-0 flex-grow-1">
                 <span class="dh-user-name">{{ user.username }}</span>
                 <span class="dh-user-role">
-                  {% if user.is_superuser %}Administrator{% elif user.is_authenticated %}Dispatcher{% endif %}
+                  {% if user.is_superuser %}Administrator{% else %}Dispatcher{% endif %}
                 </span>
               </span>
             </a>
-            {% if user.is_authenticated %}
             <a href="{% url 'logout' %}" class="dh-user-logout" title="Logout">
               <i class="fas fa-sign-out-alt"></i>
             </a>
-            {% endif %}
           </div>
+          {% else %}
+          <div class="mx-3 mb-3">
+            <a href="{% url 'login' %}" class="btn btn-primary w-100">
+              <i class="fas fa-sign-in-alt me-1"></i> Staff Sign in
+            </a>
+          </div>
+          {% endif %}
         </li>
 
       </ul>

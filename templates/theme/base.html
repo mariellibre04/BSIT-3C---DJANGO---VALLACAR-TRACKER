@@ -26,11 +26,7 @@
   <body>
     <div class="page">
 
-        {% if request.user.is_authenticated %}
-            {% include 'theme/sidebar.html' %}
-        {% else %}
-            {% include 'theme/public_sidebar.html' %}
-        {% endif %}
+        {% include 'theme/sidebar.html' %}
 
         <div class="page-wrapper">
             <div class="page-body">
