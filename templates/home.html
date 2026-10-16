@@ -79,7 +79,7 @@
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <a href="{% url 'bus:bus_map' %}" class="btn vt-btn-red">
-        <i class="fa-solid fa-location-crosshairs me-1"></i> Live GPS Map
+        <i class="fa-solid fa-satellite-dish me-1"></i> Live Tracking
       </a>
       <a href="{% url 'trips:alerts' %}" class="btn btn-outline-warning position-relative">
         <i class="fa-solid fa-bell me-1"></i> Alerts
@@ -139,21 +139,21 @@
   <div class="row row-cards g-3 mb-3">
     <div class="col-sm-6 col-lg-3">
       <a href="{% url 'bus:bus_map' %}" class="vt-stat p-3 d-flex gap-3 align-items-center text-decoration-none" style="--vt-accent:#22c55e;">
-        <span class="vt-stat-icon" style="background:#DCFCE7;border-color:#BBF7D0;color:#166534;"><i class="fa-solid fa-map-location-dot"></i></span>
+        <span class="vt-stat-icon" style="background:#DCFCE7;border-color:#BBF7D0;color:#166534;"><i class="fa-solid fa-satellite-dish"></i></span>
         <div class="min-w-0">
           <div class="vt-stat-num">{{ gps_tracked }}</div>
-          <div class="vt-stat-label">GPS Tracked</div>
-          <div class="vt-stat-sub">Real-time map &amp; movement</div>
+          <div class="vt-stat-label">Live Tracking</div>
+          <div class="vt-stat-sub">Buses on route &amp; map</div>
         </div>
       </a>
     </div>
     <div class="col-sm-6 col-lg-3">
-      <a href="{% url 'maintenance:maintenance_list' %}" class="vt-stat p-3 d-flex gap-3 align-items-center text-decoration-none" style="--vt-accent:#6366f1;">
-        <span class="vt-stat-icon" style="background:#E0E7FF;border-color:#C7D2FE;color:#3730A3;"><i class="fa-solid fa-screwdriver-wrench"></i></span>
+      <a href="{% url 'incidents:incident_list' %}" class="vt-stat p-3 d-flex gap-3 align-items-center text-decoration-none" style="--vt-accent:#6366f1;">
+        <span class="vt-stat-icon" style="background:#E0E7FF;border-color:#C7D2FE;color:#3730A3;"><i class="fa-solid fa-triangle-exclamation"></i></span>
         <div class="min-w-0">
-          <div class="vt-stat-num">{{ pending_maintenance }}</div>
-          <div class="vt-stat-label">Maintenance Due</div>
-          <div class="vt-stat-sub">Inspections &amp; repairs</div>
+          <div class="vt-stat-num">{{ open_incident_count }}</div>
+          <div class="vt-stat-label">Open Incidents</div>
+          <div class="vt-stat-sub">Emergencies &amp; reports</div>
         </div>
       </a>
     </div>
@@ -262,7 +262,7 @@
     </div>
   </div>
 
-  <!-- Dispatcher panels: delays, incidents, maintenance -->
+  <!-- Dispatcher panels: delays, incidents, analytics -->
   <div class="row g-3 mt-1">
     <div class="col-lg-4">
       <div class="vt-table-card h-100">
@@ -301,17 +301,14 @@
     <div class="col-lg-4">
       <div class="vt-table-card h-100">
         <div class="d-flex align-items-center justify-content-between px-3 py-2" style="border-bottom:1px solid var(--tblr-border-color);">
-          <strong>Maintenance Due</strong>
-          <a href="{% url 'maintenance:maintenance_list' %}" class="btn btn-sm btn-outline-secondary">Schedule</a>
+          <strong>Fleet Analytics</strong>
+          <a href="{% url 'trips:reports' %}" class="btn btn-sm btn-outline-primary">Reports</a>
         </div>
         <div class="list-group list-group-flush">
-          {% for m in overdue_maintenance %}
-          <div class="list-group-item small">
-            <strong>{{ m.bus.bus_number }}</strong>
-            <span class="badge bg-danger-lt text-danger ms-1">Due {{ m.next_due_date|date:"M d" }}</span>
-            <div class="text-muted">{{ m.title }}</div>
-          </div>
-          {% empty %}<div class="p-3 text-muted small">No overdue maintenance. Avg delay {{ avg_delay }} min across {{ total_trips }} trips.</div>{% endfor %}
+          <div class="list-group-item small d-flex justify-content-between"><span class="text-muted">On-time rate</span><strong>{{ on_time_pct }}%</strong></div>
+          <div class="list-group-item small d-flex justify-content-between"><span class="text-muted">Avg delay</span><strong>{{ avg_delay }} min</strong></div>
+          <div class="list-group-item small d-flex justify-content-between"><span class="text-muted">Trips tracked</span><strong>{{ total_trips }}</strong></div>
+          <div class="list-group-item small d-flex justify-content-between"><span class="text-muted">Riders moved</span><strong>{{ total_riders }}</strong></div>
         </div>
       </div>
     </div>

@@ -38,12 +38,65 @@ def _parse_coord(raw, low, high):
     return value, None
 
 
-def _bus_gps_payload(bus, occupied=None):
+# Approximate terminal coordinates (Negros / Cebu corridors) used to locate a bus
+# on the map when it has no live GPS fix yet. Each entry: (place keywords, lat, lng).
+ROUTE_TERMINAL_GPS = [
+    (('bacolod',), 10.6765, 122.9509),
+    (('kabankalan', 'kabnakalan'), 9.9917, 122.8128),
+    (('dumaguete',), 9.3072, 123.3080),
+    (('san carlos', 'sancarlos'), 10.4966, 123.4224),
+    (('cadiz',), 10.9586, 123.1321),
+    (('victorias',), 10.9000, 123.0667),
+    (('sagay',), 10.8917, 123.4150),
+    (('escalante',), 10.8333, 123.5000),
+    (('sipalay',), 9.7500, 122.4000),
+    (('himamaylan',), 10.1003, 122.8702),
+    (('bais',), 9.5917, 123.1222),
+    (('tanjay',), 9.5167, 123.1583),
+    (('bayawan',), 9.3667, 122.8000),
+    (('canlaon',), 10.3833, 123.2000),
+    (('la carlota', 'lacarlota'), 10.4167, 122.9167),
+    (('guihulngan',), 10.1167, 123.2667),
+    (('cebu',), 10.3157, 123.8854),
+]
+
+# Vallacar Bacolod hub — last-resort pin when the route matches no known terminal.
+HUB_LAT, HUB_LNG = 10.6765, 122.9509
+
+
+def bus_map_coords(bus):
+    """Return (lat, lng, is_approx) so every bus can be located on the map.
+
+    Live GPS fix when present; otherwise an approximate pin at the route's
+    terminal (jittered per bus so stacked buses spread out).
+    """
+    if bus.latitude is not None and bus.longitude is not None:
+        return float(bus.latitude), float(bus.longitude), False
+    text = f'{bus.current_location or ""} {bus.route or ""}'.lower()
+    base = None
+    for keywords, lat, lng in ROUTE_TERMINAL_GPS:
+        if any(k in text for k in keywords):
+            base = (lat, lng)
+            break
+    if base is None:
+        base = (HUB_LAT, HUB_LNG)
+    seed = bus.id or 0
+    jitter_lat = ((seed * 7) % 5 - 2) * 0.004
+    jitter_lng = ((seed * 13) % 5 - 2) * 0.004
+    return round(base[0] + jitter_lat, 6), round(base[1] + jitter_lng, 6), True
+
+
+def _bus_gps_payload(bus, occupied=None, use_fallback=False):
     if occupied is None:
         try:
             occupied = bus.total_passengers
         except AttributeError:
             occupied = bus.passengers.count()
+    lat = float(bus.latitude) if bus.latitude is not None else None
+    lng = float(bus.longitude) if bus.longitude is not None else None
+    is_approx = False
+    if use_fallback and (lat is None or lng is None):
+        lat, lng, is_approx = bus_map_coords(bus)
     return {
         'id': bus.id,
         'bus_number': bus.bus_number,
@@ -52,8 +105,9 @@ def _bus_gps_payload(bus, occupied=None):
         'route': bus.route,
         'status': bus.status,
         'current_location': bus.current_location or bus.route,
-        'latitude': float(bus.latitude) if bus.latitude is not None else None,
-        'longitude': float(bus.longitude) if bus.longitude is not None else None,
+        'latitude': lat,
+        'longitude': lng,
+        'is_approx': is_approx,
         'movement_status': bus.movement_status,
         'movement_display': bus.get_movement_status_display(),
         'last_gps_update': bus.last_gps_update.isoformat() if bus.last_gps_update else None,
@@ -227,15 +281,29 @@ def bus_delete_ajax(request, pk):
     return JsonResponse({'status': 'deleted'})
 
 
+ROUTE_PALETTE = [
+    '#C1121F', '#2563eb', '#16a34a', '#9333ea',
+    '#ea580c', '#0891b2', '#be123c', '#4d7c0f',
+]
+
 @login_required(login_url='login')
 def bus_map_page(request):
-    """1. Real-Time GPS Tracking map: current location of each bus + route + movement."""
+    """Live Tracking board: buses on route (filterable) + map with route lines and bus markers."""
     buses = list(scoped_buses(request.user).annotate(total_passengers=Count('passengers')).order_by('bus_number'))
     for b in buses:
         b.seats_left = max(0, b.capacity - (b.total_passengers or 0))
     with_gps = sum(1 for b in buses if b.latitude is not None and b.longitude is not None)
+    for b in buses:
+        b.map_latitude, b.map_longitude, b.is_approx = bus_map_coords(b)
+    approx_count = sum(1 for b in buses if b.is_approx)
+    # Distinct routes with a stable color each (for badges, markers, polylines)
+    route_names = sorted({(b.route or '').strip() for b in buses if (b.route or '').strip()})
+    route_colors = {name: ROUTE_PALETTE[i % len(ROUTE_PALETTE)] for i, name in enumerate(route_names)}
+    for b in buses:
+        b.route_color = route_colors.get((b.route or '').strip(), '#C1121F')
     return render(request, 'bus/map.html', {
-        'buses': buses, 'with_gps': with_gps,
+        'buses': buses, 'with_gps': with_gps, 'approx_count': approx_count,
+        'routes': [{'name': name, 'color': route_colors[name]} for name in route_names],
         'movement_choices': Bus.MOVEMENT_CHOICES,
         # Vallacar / Bacolod default center when a bus has no GPS fix yet
         'default_lat': 10.6765, 'default_lng': 122.9509,
@@ -244,9 +312,13 @@ def bus_map_page(request):
 
 @login_required(login_url='login')
 def bus_locations_ajax(request):
-    """JSON feed for the live map: location, route, movement, seats."""
+    """JSON feed for the live map: location, route, movement, seats.
+
+    Buses without a GPS fix get an approximate route-terminal pin so every
+    available bus is located on the map (flagged with is_approx).
+    """
     buses = scoped_buses(request.user).annotate(total_passengers=Count('passengers')).order_by('bus_number')
-    return JsonResponse({'buses': [_bus_gps_payload(b, b.total_passengers) for b in buses]})
+    return JsonResponse({'buses': [_bus_gps_payload(b, b.total_passengers, use_fallback=True) for b in buses]})
 
 
 @login_required(login_url='login')

@@ -163,27 +163,70 @@ def trip_delete_ajax(request, pk):
 
 @login_required(login_url='login')
 def alerts_page(request):
-    """3. Trip and Delay Alerts: delayed / rerouted / unexpected stops + open incidents + overdue maintenance."""
-    alert_trips = list(
-        scoped_trips(request.user).select_related('bus')
-        .filter(status__in=[Trip.STATUS_DELAYED, Trip.STATUS_REROUTED, Trip.STATUS_UNEXPECTED_STOP])
-        .order_by('-updated_at')[:50]
-    )
-    open_incidents = list(
-        scoped_incidents(request.user).select_related('bus')
-        .filter(status__in=[Incident.STATUS_REPORTED, Incident.STATUS_RESPONDING])
-        .order_by('-created_at')[:50]
-    )
+    """Trip and Delay Alerts operations board: KPIs, delays chart, fleet status, recent delays."""
+    from datetime import timedelta
+    trips_qs = scoped_trips(request.user).select_related('bus')
+    buses_qs = scoped_buses(request.user)
+    incidents_qs = scoped_incidents(request.user)
+
+    alert_statuses = [Trip.STATUS_DELAYED, Trip.STATUS_REROUTED, Trip.STATUS_UNEXPECTED_STOP]
+    alert_trips = list(trips_qs.filter(status__in=alert_statuses).order_by('-updated_at')[:50])
+    active_delays = trips_qs.filter(status=Trip.STATUS_DELAYED).count()
+    rerouted = trips_qs.filter(status=Trip.STATUS_REROUTED).count()
+    unexpected = trips_qs.filter(status=Trip.STATUS_UNEXPECTED_STOP).count()
+    avg_delay = trips_qs.aggregate(v=Avg('delay_minutes'))['v'] or 0
+
+    fleet_total = buses_qs.count()
+    in_service = buses_qs.filter(status=Bus.STATUS_ACTIVE).count()
+    in_maintenance = buses_qs.filter(status=Bus.STATUS_MAINTENANCE).count()
+    out_of_service = buses_qs.filter(status=Bus.STATUS_INACTIVE).count()
+    operational_pct = round(in_service * 100.0 / fleet_total, 1) if fleet_total else 0
+
+    critical_incidents = incidents_qs.filter(
+        severity=Incident.SEVERITY_CRITICAL,
+        status__in=[Incident.STATUS_REPORTED, Incident.STATUS_RESPONDING],
+    ).count()
+    open_incidents = incidents_qs.filter(
+        status__in=[Incident.STATUS_REPORTED, Incident.STATUS_RESPONDING]
+    ).count()
+
+    # Delays by day (last 7 days) per alert category for the bar chart
     today = timezone.localdate()
-    overdue_maintenance = list(
-        scoped_maintenances(request.user).select_related('bus')
-        .filter(status__in=[MaintenanceRecord.STATUS_SCHEDULED, MaintenanceRecord.STATUS_OVERDUE])
-        .filter(next_due_date__lt=today).order_by('next_due_date')[:50]
-    )
+    days, delayed_series, rerouted_series, stopped_series = [], [], [], []
+    for back in range(6, -1, -1):
+        day = today - timedelta(days=back)
+        days.append(day.strftime('%a'))
+        day_trips = trips_qs.filter(scheduled_departure__date=day)
+        delayed_series.append(day_trips.filter(status=Trip.STATUS_DELAYED).count())
+        rerouted_series.append(day_trips.filter(status=Trip.STATUS_REROUTED).count())
+        stopped_series.append(day_trips.filter(status=Trip.STATUS_UNEXPECTED_STOP).count())
+
+    recent_delays = []
+    for t in alert_trips[:8]:
+        bus = t.bus
+        recent_delays.append({
+            'bus_number': bus.bus_number if bus else '—',
+            'route': t.route or (bus.route if bus else '—'),
+            'location': (bus.current_location if bus and bus.current_location else f'{t.origin} - {t.destination}'),
+            'delay_minutes': t.delay_minutes,
+            'reason': t.notes or 'No reason logged',
+            'status': t.status,
+            'status_display': t.get_status_display(),
+            'updated_at': t.updated_at,
+        })
+
     return render(request, 'trips/alerts.html', {
-        'alert_trips': alert_trips, 'open_incidents': open_incidents,
-        'overdue_maintenance': overdue_maintenance, 'today': today,
-        'alert_count': len(alert_trips) + len(open_incidents) + len(overdue_maintenance),
+        'today': today,
+        'active_delays': active_delays, 'rerouted': rerouted, 'unexpected': unexpected,
+        'alert_count': len(alert_trips),
+        'in_service': in_service, 'fleet_total': fleet_total,
+        'in_maintenance': in_maintenance, 'out_of_service': out_of_service,
+        'operational_pct': operational_pct,
+        'avg_delay': round(avg_delay, 1),
+        'critical_incidents': critical_incidents, 'open_incidents': open_incidents,
+        'delay_days': days, 'delayed_series': delayed_series,
+        'rerouted_series': rerouted_series, 'stopped_series': stopped_series,
+        'recent_delays': recent_delays,
     })
 
 

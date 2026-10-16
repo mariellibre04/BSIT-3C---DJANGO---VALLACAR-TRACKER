@@ -1,1 +1,4 @@
-Vallacar Tracker Hermosura,Jayca Medialuna,Hezelm Mae Libre,Mariel
+Vallacar Tracker 
+Hermosura,Jayca
+Medialuna,Hezel Mae  
+Libre,Mariel
