@@ -1,0 +1,142 @@
+{% extends "theme/base.html" %}
+{% block content %}
+<div class="container-xl">
+  <div class="page-header d-print-none"><div class="row align-items-center"><div class="col">
+    <div class="page-pretitle">Trips &amp; Schedules</div>
+    <h2 class="page-title mb-0">Trips</h2>
+    <div class="text-muted small">Scheduled runs with delay, reroute, and unexpected-stop tracking. See <a href="{% url 'trips:alerts' %}">Delay Alerts</a> and <a href="{% url 'trips:reports' %}">Analytics &amp; Reports</a>.</div>
+  </div><div class="col-auto">
+    <a href="{% url 'trips:alerts' %}" class="btn btn-outline-warning btn-sm"><i class="fa-solid fa-bell me-1"></i> Alerts</a>
+    <a href="{% url 'trips:reports' %}" class="btn btn-outline-primary btn-sm"><i class="fa-solid fa-chart-line me-1"></i> Reports</a>
+  </div></div></div><br>
+
+  <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2 mb-1">
+    <form method="GET" class="w-100 d-flex flex-column flex-md-row gap-2" style="max-width: 560px;">
+      <div class="input-group" style="max-width: 360px;">
+        <span class="input-group-text"><i class="ti ti-search"></i></span>
+        <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search origin, destination, route...">
+        <button type="submit" class="btn btn-primary">Search</button>
+      </div>
+      <select name="status" class="form-select" style="max-width: 180px;" onchange="this.form.submit()">
+        <option value="">All Status</option>
+        {% for val, label in status_choices %}<option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </form>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#tripModal" data-mode="create"><i class="fas fa-plus-circle me-2"></i> Add Trip</button>
+  </div>
+  <div id="tripAlert" class="alert alert-danger d-none" role="alert"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">All Trips</div></div>
+    <div class="table-responsive"><table class="table table-vcenter table-hover card-table text-nowrap">
+      <thead><tr><th>#</th><th>Bus</th><th>Origin → Destination</th><th>Schedule</th><th>Status</th><th>Delay</th><th class="w-1">Actions</th></tr></thead>
+      <tbody>
+      {% for t in trips %}
+      <tr>
+        <td class="text-muted">{{ forloop.counter0|add:trips.start_index }}</td>
+        <td class="fw-semibold">{% if t.bus %}{{ t.bus.bus_number }}{% else %}—{% endif %}</td>
+        <td>{{ t.origin }} → {{ t.destination }}<div class="text-muted small">{{ t.route }}</div></td>
+        <td class="text-muted small">{{ t.scheduled_departure|date:"M d, h:i A" }} → {{ t.scheduled_arrival|date:"M d, h:i A" }}</td>
+        <td>
+          {% if t.status == 'delayed' %}<span class="badge bg-danger-lt text-danger">Delayed</span>
+          {% elif t.status == 'rerouted' %}<span class="badge bg-warning-lt text-warning">Rerouted</span>
+          {% elif t.status == 'unexpected_stop' %}<span class="badge bg-warning-lt text-warning">Unexpected Stop</span>
+          {% elif t.status == 'completed' or t.status == 'on_time' %}<span class="badge bg-success-lt text-success">{{ t.get_status_display }}</span>
+          {% elif t.status == 'cancelled' %}<span class="badge bg-secondary-lt text-secondary">Cancelled</span>
+          {% else %}<span class="badge bg-info-lt text-info">{{ t.get_status_display }}</span>{% endif %}
+        </td>
+        <td>{% if t.delay_minutes %}<span class="badge bg-danger-lt text-danger">+{{ t.delay_minutes }} min</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td><div class="d-flex gap-1">
+          <button type="button" class="btn btn-ghost-secondary btn-icon btn-sm trip-edit-btn" data-bs-toggle="modal" data-bs-target="#tripModal" data-id="{{ t.id }}" title="Edit"><i class="fas fa-edit text-primary"></i></button>
+          <button type="button" class="btn btn-ghost-secondary btn-icon btn-sm" data-bs-toggle="modal" data-bs-target="#deleteTripModal" data-id="{{ t.id }}" data-name="{{ t.origin }} to {{ t.destination }}" title="Delete"><i class="fas fa-trash-alt text-danger"></i></button>
+        </div></td>
+      </tr>
+      {% empty %}<tr><td colspan="7"><div class="empty py-5"><p class="empty-title">No trips yet</p><p class="empty-subtitle">Schedule trips to track delays and route performance.</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+    {% if trips.paginator.num_pages > 1 %}
+    <div class="card-footer d-flex align-items-center">
+      <p class="m-0 text-muted">Showing {{ trips.start_index }} to {{ trips.end_index }} of {{ trips.paginator.count }}</p>
+      <ul class="pagination m-0 ms-auto">
+        {% if trips.has_previous %}<li class="page-item"><a class="page-link" href="?page={{ trips.previous_page_number }}">prev</a></li>{% endif %}
+        {% for num in trips.paginator.page_range %}<li class="page-item {% if trips.number == num %}active{% endif %}"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>{% endfor %}
+        {% if trips.has_next %}<li class="page-item"><a class="page-link" href="?page={{ trips.next_page_number }}">next</a></li>{% endif %}
+      </ul>
+    </div>{% endif %}
+  </div>
+</div>
+
+<div class="modal modal-blur fade" id="tripModal" tabindex="-1">
+  <div class="modal-dialog modal-md modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="tripModalTitle">Add Trip</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form id="tripForm">{% csrf_token %}<input type="hidden" name="id" id="trip_id">
+      <div class="modal-body"><div id="tripFormError" class="alert alert-danger d-none"></div>
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Bus</label><select name="bus" id="trip_bus" class="form-select"><option value="">— Unassigned —</option>{% for b in available_buses %}<option value="{{ b.id }}">{{ b.bus_number }} ({{ b.route }})</option>{% endfor %}</select></div>
+          <div class="col-6"><label class="form-label">Origin</label><input type="text" name="origin" id="trip_origin" class="form-control" placeholder="Bacolod" required></div>
+          <div class="col-6"><label class="form-label">Destination</label><input type="text" name="destination" id="trip_destination" class="form-control" placeholder="Dumaguete" required></div>
+          <div class="col-12"><label class="form-label">Route (optional)</label><input type="text" name="route" id="trip_route" class="form-control" placeholder="Defaults to Origin - Destination"></div>
+          <div class="col-6"><label class="form-label">Scheduled departure</label><input type="datetime-local" name="scheduled_departure" id="trip_sdep" class="form-control" required></div>
+          <div class="col-6"><label class="form-label">Scheduled arrival</label><input type="datetime-local" name="scheduled_arrival" id="trip_sarr" class="form-control" required></div>
+          <div class="col-6"><label class="form-label">Actual departure</label><input type="datetime-local" name="actual_departure" id="trip_adep" class="form-control"></div>
+          <div class="col-6"><label class="form-label">Actual arrival</label><input type="datetime-local" name="actual_arrival" id="trip_aarr" class="form-control"></div>
+          <div class="col-6"><label class="form-label">Status</label><select name="status" id="trip_status" class="form-select">{% for val, label in status_choices %}<option value="{{ val }}">{{ label }}</option>{% endfor %}</select></div>
+          <div class="col-6"><label class="form-label">Passengers</label><input type="number" min="0" name="passenger_count" id="trip_pax" class="form-control" value="0"></div>
+          <div class="col-12"><label class="form-label">Notes (delay reason, reroute, stops)</label><textarea name="notes" id="trip_notes" class="form-control" rows="2"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Save Trip</button></div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal modal-blur fade" id="deleteTripModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Delete Trip</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body"><p>Delete <strong id="deleteTripName"></strong>?</p></div>
+    <div class="modal-footer"><button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-danger" id="confirmDeleteTripBtn">Delete</button></div>
+  </div></div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function() {
+  const modalEl = document.getElementById('tripModal');
+  const delEl = document.getElementById('deleteTripModal');
+  const form = document.getElementById('tripForm');
+  const alertBox = document.getElementById('tripAlert');
+  let currentId = null;
+  modalEl.addEventListener('show.bs.modal', function(e) {
+    const btn = e.relatedTarget;
+    const mode = btn ? btn.getAttribute('data-mode') : 'create';
+    if (btn && btn.classList.contains('trip-edit-btn')) {
+      currentId = btn.getAttribute('data-id');
+      fetch('/trips/ajax/get/' + currentId + '/').then(r => r.json()).then(function(t) {
+        document.getElementById('trip_id').value = t.id;
+        document.getElementById('trip_bus').value = t.bus_id || '';
+        document.getElementById('trip_origin').value = t.origin;
+        document.getElementById('trip_destination').value = t.destination;
+        document.getElementById('trip_route').value = t.route;
+        document.getElementById('trip_sdep').value = t.scheduled_departure;
+        document.getElementById('trip_sarr').value = t.scheduled_arrival;
+        document.getElementById('trip_adep').value = t.actual_departure;
+        document.getElementById('trip_aarr').value = t.actual_arrival;
+        document.getElementById('trip_status').value = t.status;
+        document.getElementById('trip_pax').value = t.passenger_count;
+        document.getElementById('trip_notes').value = t.notes;
+      });
+      document.getElementById('tripModalTitle').textContent = 'Edit Trip';
+    } else if (mode === 'create' && !(btn && btn.classList.contains('trip-edit-btn'))) {
+      form.reset(); document.getElementById('trip_id').value=''; currentId=null;
+      document.getElementById('tripModalTitle').textContent = 'Add Trip';
+    }
+  });
+  delEl.addEventListener('show.bs.modal', function(e) { const b=e.relatedTarget; if(b){ currentId=b.getAttribute('data-id'); document.getElementById('deleteTripName').textContent=b.getAttribute('data-name'); } });
+  form.addEventListener('submit', function(e){ e.preventDefault();
+    fetch('{% url "trips:trip_save_ajax" %}', {method:'POST', headers:{'X-CSRFToken':document.querySelector('[name=csrfmiddlewaretoken]').value}, body:new FormData(form)})
+    .then(r=>r.json()).then(d=>{ if(d.error){ alertBox.textContent=d.error; alertBox.classList.remove('d-none'); return; } window.location.reload(); }); });
+  document.getElementById('confirmDeleteTripBtn').addEventListener('click', function(){ if(!currentId) return;
+    fetch('/trips/ajax/delete/'+currentId+'/', {method:'POST', headers:{'X-CSRFToken':document.querySelector('[name=csrfmiddlewaretoken]').value}}).then(r=>r.json()).then(d=>{ if(d.status==='deleted') window.location.reload(); }); });
+})();
+</script>
+{% endblock %}

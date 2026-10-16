@@ -1,26 +1,320 @@
 {% extends "theme/base.html" %}
 {% block content %}
+<style>
+  .vt-topbar {
+    background: #fff;
+    border: 1px solid var(--tblr-border-color);
+    border-radius: 14px;
+    box-shadow: var(--tblr-shadow-card);
+  }
+  .vt-logo-mark {
+    width: 2.6rem; height: 2.6rem; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: .7rem; color: #fff; font-size: 1.2rem;
+    background: linear-gradient(135deg,#C1121F 0%,#F4A100 100%);
+    box-shadow: 0 6px 14px -6px rgba(193,18,31,.6);
+  }
+  .vt-brand-title { font-weight: 800; letter-spacing: -.02em; font-size: 1.05rem; line-height: 1.1; color: #1c1e36; }
+  .vt-brand-sub { font-size: .72rem; color: var(--tblr-muted); font-weight: 600; }
+  .vt-stat {
+    background: #fff; border: 1px solid var(--tblr-border-color);
+    border-radius: 14px; box-shadow: var(--tblr-shadow-card);
+    overflow: hidden; position: relative;
+  }
+  .vt-stat::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+    background: var(--vt-accent, #F4A100);
+  }
+  .vt-stat-icon {
+    width: 2.9rem; height: 2.9rem; border-radius: .8rem; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1.25rem; color: #7a4a00;
+    background: #FEF3C7; border: 1px solid #FDE68A;
+  }
+  .vt-stat-num { font-size: 1.9rem; font-weight: 800; letter-spacing: -.03em; line-height: 1; color: #1c1e36; }
+  .vt-stat-label { font-weight: 700; font-size: .85rem; color: #1c1e36; }
+  .vt-stat-sub { font-size: .75rem; color: var(--tblr-muted); }
+  .vt-table-card {
+    background: #fff; border: 1px solid var(--tblr-border-color);
+    border-radius: 14px; box-shadow: var(--tblr-shadow-card); overflow: hidden;
+  }
+  .vt-btn-red {
+    background: #C1121F; border-color: #C1121F; color: #fff; font-weight: 700;
+    box-shadow: 0 6px 14px -6px rgba(193,18,31,.6);
+  }
+  .vt-btn-red:hover { background: #a50e1b; border-color: #a50e1b; color: #fff; }
+  .seat-bar { height: 6px; border-radius: 100rem; background: var(--tblr-bg-surface-secondary); overflow: hidden; min-width: 90px; }
+  .seat-bar > span { display: block; height: 100%; border-radius: 100rem; }
+</style>
+
 <div class="container-xl">
-  <div class="page-header d-print-none" aria-label="Page header">
-    <div class="container-xl">
-      <div class="row align-items-center">
-        <div class="col">
-          <div class="page-pretitle">Overview</div>
-          <div class="d-flex align-items-center gap-3 flex-wrap d-none d-md-flex">
-            <h2 class="page-title mb-0">Dashboard</h2>
-          </div>
-          <h2 class="page-title mb-0 d-md-none">Dashboard</h2>
+  <!-- Top header bar — like screenshot: logo left, Operations Admin right -->
+  <div class="vt-topbar d-flex align-items-center gap-3 px-3 px-md-4 py-3 mb-3 flex-wrap">
+    <span class="vt-logo-mark"><i class="fa-solid fa-bus"></i></span>
+    <div class="lh-1 me-auto">
+      <div class="vt-brand-title">VALLACAR TRACKER</div>
+      <div class="vt-brand-sub">Vallacar Transit Inc. &bull; Fleet Management System</div>
+    </div>
+    <span class="badge bg-success-lt text-success d-none d-md-inline-flex align-items-center gap-1">
+      <span class="d-inline-block rounded-circle bg-success" style="width:.5rem;height:.5rem;"></span>
+      {{ available_buses }} buses available now
+    </span>
+    <div class="d-flex align-items-center gap-2 text-muted">
+      <i class="fa-regular fa-bell fs-3"></i>
+      <span class="avatar avatar-sm rounded-circle" style="background:#C1121F;color:#fff;font-weight:700;">
+        {{ user.username|first|upper|default:"O" }}
+      </span>
+      <span class="small fw-semibold text-dark d-none d-lg-inline">Operations Admin <i class="fa-solid fa-chevron-down ms-1 text-muted"></i></span>
+    </div>
+  </div>
+
+  <!-- Dashboard Overview heading — like screenshot -->
+  <div class="d-flex align-items-end justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+      <h2 class="mb-0 fw-bold" style="letter-spacing:-.02em;">Dashboard Overview</h2>
+      <div class="text-muted small">
+        Welcome back! Here is the current fleet overview for {{ today|date:"F d, Y" }}.
+        Track &amp; locate where available buses currently are and how many seats are free inside.
+      </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{% url 'bus:bus_map' %}" class="btn vt-btn-red">
+        <i class="fa-solid fa-location-crosshairs me-1"></i> Live GPS Map
+      </a>
+      <a href="{% url 'trips:alerts' %}" class="btn btn-outline-warning position-relative">
+        <i class="fa-solid fa-bell me-1"></i> Alerts
+        {% if alert_count %}<span class="badge bg-danger text-white ms-1">{{ alert_count }}</span>{% endif %}
+      </a>
+      <a href="{% url 'trips:reports' %}" class="btn btn-outline-primary">
+        <i class="fa-solid fa-chart-line me-1"></i> Reports
+      </a>
+    </div>
+  </div>
+
+  <!-- 4 stat cards — same structure as screenshot -->
+  <div class="row row-cards g-3 mb-3">
+    <div class="col-sm-6 col-lg-3">
+      <div class="vt-stat p-3 d-flex gap-3 align-items-center" style="--vt-accent:#F4A100;">
+        <span class="vt-stat-icon"><i class="fa-solid fa-bus"></i></span>
+        <div class="min-w-0">
+          <div class="vt-stat-num">{{ total_buses }}</div>
+          <div class="vt-stat-label">Total Buses</div>
+          <div class="vt-stat-sub">{{ active_buses }} active &bull; {{ maintenance_buses }} maintenance</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="vt-stat p-3 d-flex gap-3 align-items-center" style="--vt-accent:#22c55e;">
+        <span class="vt-stat-icon" style="background:#DCFCE7;border-color:#BBF7D0;color:#166534;"><i class="fa-solid fa-chair"></i></span>
+        <div class="min-w-0">
+          <div class="vt-stat-num">{{ available_seats }}</div>
+          <div class="vt-stat-label">Available Seats</div>
+          <div class="vt-stat-sub">{{ occupied_sum }} occupied of {{ capacity_sum }} total slots</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="vt-stat p-3 d-flex gap-3 align-items-center" style="--vt-accent:#C1121F;">
+        <span class="vt-stat-icon" style="background:#FEE2E2;border-color:#FECACA;color:#991B1B;"><i class="fa-solid fa-id-card"></i></span>
+        <div class="min-w-0">
+          <div class="vt-stat-num">{{ total_drivers }}</div>
+          <div class="vt-stat-label">Active Drivers</div>
+          <div class="vt-stat-sub">{{ available_buses }} buses ready for dispatch</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="vt-stat p-3 d-flex gap-3 align-items-center" style="--vt-accent:#6366f1;">
+        <span class="vt-stat-icon" style="background:#E0E7FF;border-color:#C7D2FE;color:#3730A3;"><i class="fa-solid fa-route"></i></span>
+        <div class="min-w-0">
+          <div class="vt-stat-num">{{ total_routes }}</div>
+          <div class="vt-stat-label">Total Routes</div>
+          <div class="vt-stat-sub">Live corridors being tracked</div>
         </div>
       </div>
     </div>
   </div>
-  <br>
 
-  <div class="card">
-    <div class="card-body text-muted">
-      Dashboard
+  <!-- Operations feature strip: 5 requested Vallacar features -->
+  <div class="row row-cards g-3 mb-3">
+    <div class="col-sm-6 col-lg-3">
+      <a href="{% url 'bus:bus_map' %}" class="vt-stat p-3 d-flex gap-3 align-items-center text-decoration-none" style="--vt-accent:#22c55e;">
+        <span class="vt-stat-icon" style="background:#DCFCE7;border-color:#BBF7D0;color:#166534;"><i class="fa-solid fa-map-location-dot"></i></span>
+        <div class="min-w-0">
+          <div class="vt-stat-num">{{ gps_tracked }}</div>
+          <div class="vt-stat-label">GPS Tracked</div>
+          <div class="vt-stat-sub">Real-time map &amp; movement</div>
+        </div>
+      </a>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <a href="{% url 'maintenance:maintenance_list' %}" class="vt-stat p-3 d-flex gap-3 align-items-center text-decoration-none" style="--vt-accent:#6366f1;">
+        <span class="vt-stat-icon" style="background:#E0E7FF;border-color:#C7D2FE;color:#3730A3;"><i class="fa-solid fa-screwdriver-wrench"></i></span>
+        <div class="min-w-0">
+          <div class="vt-stat-num">{{ pending_maintenance }}</div>
+          <div class="vt-stat-label">Maintenance Due</div>
+          <div class="vt-stat-sub">Inspections &amp; repairs</div>
+        </div>
+      </a>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <a href="{% url 'trips:alerts' %}" class="vt-stat p-3 d-flex gap-3 align-items-center text-decoration-none" style="--vt-accent:#ef4444;">
+        <span class="vt-stat-icon" style="background:#FEE2E2;border-color:#FECACA;color:#991B1B;"><i class="fa-solid fa-bell"></i></span>
+        <div class="min-w-0">
+          <div class="vt-stat-num">{{ alert_count }}</div>
+          <div class="vt-stat-label">Active Alerts</div>
+          <div class="vt-stat-sub">{{ delayed_trips }} delayed trips</div>
+        </div>
+      </a>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <a href="{% url 'trips:reports' %}" class="vt-stat p-3 d-flex gap-3 align-items-center text-decoration-none" style="--vt-accent:#06b6d4;">
+        <span class="vt-stat-icon" style="background:#CFFAFE;border-color:#A5F3FC;color:#155E75;"><i class="fa-solid fa-chart-line"></i></span>
+        <div class="min-w-0">
+          <div class="vt-stat-num">{{ on_time_pct }}%</div>
+          <div class="vt-stat-label">On-Time Rate</div>
+          <div class="vt-stat-sub">{{ total_trips }} trips &bull; {{ total_riders }} riders</div>
+        </div>
+      </a>
     </div>
   </div>
 
+  <!-- Recent Buses — same structure as screenshot's Recent Trucks -->
+  <div class="vt-table-card">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-3 px-md-4 py-3" style="border-bottom:1px solid var(--tblr-border-color);">
+      <div>
+        <h3 class="card-title mb-0">Live Buses — Location &amp; Seats</h3>
+        <div class="text-muted small">Where available buses currently are and how many seats are free inside.</div>
+      </div>
+      <a href="{% url 'bus:bus_list' %}" class="btn vt-btn-red btn-sm">
+        <i class="fa-solid fa-table-list me-1"></i> View All Buses
+      </a>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter table-hover card-table text-nowrap mb-0">
+        <thead>
+          <tr>
+            <th>Bus No</th>
+            <th>Driver</th>
+            <th>Current Location / Route</th>
+            <th>Seats Available</th>
+            <th>Status</th>
+            <th>Last Update</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in recent_buses %}
+          <tr>
+            <td>
+              <div class="fw-bold text-dark">{{ b.bus_number }}</div>
+              <div class="text-muted small">{{ b.plate_number }}</div>
+            </td>
+            <td class="text-muted">{{ b.driver_name }}</td>
+            <td>
+              <span class="d-inline-flex align-items-center gap-1 text-muted">
+                <i class="fa-solid fa-location-dot" style="color:#C1121F;"></i>
+                {{ b.display_location|default:b.route }}
+              </span>
+              <div class="text-muted small">{{ b.get_movement_status_display }}</div>
+            </td>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <div class="seat-bar flex-grow-1">
+                  <span style="width:{{ b.occupancy_pct }}%;{% if b.seats_left <= 0 %}background:#ef4444;{% elif b.seats_left <= 10 %}background:#f59e0b;{% else %}background:#22c55e;{% endif %}"></span>
+                </div>
+                {% if b.seats_left <= 0 %}
+                  <span class="badge bg-danger-lt text-danger">Full ({{ b.total_passengers }}/{{ b.capacity }})</span>
+                {% elif b.seats_left <= 10 %}
+                  <span class="badge bg-warning-lt text-warning">{{ b.seats_left }} left</span>
+                {% else %}
+                  <span class="badge bg-success-lt text-success">{{ b.seats_left }} seats left</span>
+                {% endif %}
+              </div>
+              <div class="text-muted small mt-1">{{ b.total_passengers }}/{{ b.capacity }} occupied</div>
+            </td>
+            <td>
+              {% if b.status == 'active' %}
+                <span class="badge bg-success-lt text-success">Active</span>
+              {% elif b.status == 'maintenance' %}
+                <span class="badge bg-warning-lt text-warning">Maintenance</span>
+              {% else %}
+                <span class="badge bg-secondary-lt text-secondary">{{ b.get_status_display }}</span>
+              {% endif %}
+            </td>
+            <td class="text-muted small">{{ b.updated_at|date:"M d, Y h:i A" }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="6">
+              <div class="empty py-5">
+                <div class="empty-icon mb-2"><i class="fa-solid fa-bus fa-2x text-muted"></i></div>
+                <p class="empty-title">No buses tracked yet</p>
+                <p class="empty-subtitle text-muted">Add buses in Bus Management to start live tracking locations and seats.</p>
+                <div class="empty-action">
+                  <a href="{% url 'bus:bus_list' %}" class="btn vt-btn-red btn-sm">Add Bus</a>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Dispatcher panels: delays, incidents, maintenance -->
+  <div class="row g-3 mt-1">
+    <div class="col-lg-4">
+      <div class="vt-table-card h-100">
+        <div class="d-flex align-items-center justify-content-between px-3 py-2" style="border-bottom:1px solid var(--tblr-border-color);">
+          <strong>Trip &amp; Delay Alerts</strong>
+          <a href="{% url 'trips:alerts' %}" class="btn btn-sm btn-outline-warning">View all</a>
+        </div>
+        <div class="list-group list-group-flush">
+          {% for t in alert_trips %}
+          <div class="list-group-item small">
+            <strong>{% if t.bus %}{{ t.bus.bus_number }}{% else %}Unassigned{% endif %}</strong>
+            <span class="badge bg-danger-lt text-danger ms-1">{{ t.get_status_display }}{% if t.delay_minutes %} +{{ t.delay_minutes }}m{% endif %}</span>
+            <div class="text-muted">{{ t.origin }} → {{ t.destination }}</div>
+          </div>
+          {% empty %}<div class="p-3 text-muted small">No active trip alerts. All clear.</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="vt-table-card h-100">
+        <div class="d-flex align-items-center justify-content-between px-3 py-2" style="border-bottom:1px solid var(--tblr-border-color);">
+          <strong>Emergency &amp; Incidents {% if open_incident_count %}<span class="badge bg-danger text-white">{{ open_incident_count }}</span>{% endif %}</strong>
+          <a href="{% url 'incidents:incident_list' %}" class="btn btn-sm btn-outline-danger">Respond</a>
+        </div>
+        <div class="list-group list-group-flush">
+          {% for i in open_incidents %}
+          <div class="list-group-item small">
+            <strong>{{ i.title|truncatechars:45 }}</strong>
+            <span class="badge bg-warning-lt text-warning ms-1">{{ i.get_severity_display }}</span>
+            <div class="text-muted">{% if i.bus %}{{ i.bus.bus_number }} &bull; {% endif %}{{ i.location|default:i.get_incident_type_display }}</div>
+          </div>
+          {% empty %}<div class="p-3 text-muted small">No open incidents.</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="vt-table-card h-100">
+        <div class="d-flex align-items-center justify-content-between px-3 py-2" style="border-bottom:1px solid var(--tblr-border-color);">
+          <strong>Maintenance Due</strong>
+          <a href="{% url 'maintenance:maintenance_list' %}" class="btn btn-sm btn-outline-secondary">Schedule</a>
+        </div>
+        <div class="list-group list-group-flush">
+          {% for m in overdue_maintenance %}
+          <div class="list-group-item small">
+            <strong>{{ m.bus.bus_number }}</strong>
+            <span class="badge bg-danger-lt text-danger ms-1">Due {{ m.next_due_date|date:"M d" }}</span>
+            <div class="text-muted">{{ m.title }}</div>
+          </div>
+          {% empty %}<div class="p-3 text-muted small">No overdue maintenance. Avg delay {{ avg_delay }} min across {{ total_trips }} trips.</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}

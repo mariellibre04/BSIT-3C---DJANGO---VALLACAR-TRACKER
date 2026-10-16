@@ -140,7 +140,117 @@ def logout_view(request):
 
 @login_required(login_url='login')
 def home(request):
-    return render(request, 'home.html')
+    from django.db.models import Avg, Count, Sum
+    from django.utils import timezone as dj_timezone
+    from apps.scoping import (
+        scoped_buses, scoped_drivers, scoped_incidents,
+        scoped_maintenances, scoped_trips,
+    )
+    from apps.bus.models import Bus
+    from apps.incidents.models import Incident
+    from apps.maintenance.models import MaintenanceRecord
+    from apps.trips.models import Trip
+
+    buses_qs = scoped_buses(request.user).annotate(
+        total_passengers=Count('passengers', distinct=True)
+    )
+    drivers_qs = scoped_drivers(request.user)
+
+    total_buses = buses_qs.count()
+    active_buses = buses_qs.filter(status=Bus.STATUS_ACTIVE).count()
+    maintenance_buses = buses_qs.filter(status=Bus.STATUS_MAINTENANCE).count()
+    total_drivers = drivers_qs.count()
+    total_routes = buses_qs.values('route').distinct().count()
+    gps_tracked = buses_qs.filter(latitude__isnull=False, longitude__isnull=False).count()
+
+    capacity_sum = buses_qs.aggregate(total=Sum('capacity'))['total'] or 0
+    occupied_sum = 0
+    available_seats = 0
+    available_buses = 0
+    for b in buses_qs:
+        occupied = b.total_passengers or 0
+        occupied_sum += occupied
+        left = max(0, (b.capacity or 0) - occupied)
+        available_seats += left
+        if b.status == Bus.STATUS_ACTIVE and left > 0:
+            available_buses += 1
+
+    recent_buses = list(
+        buses_qs.prefetch_related('drivers').order_by('-updated_at')[:8]
+    )
+    for b in recent_buses:
+        occupied = b.total_passengers or 0
+        b.seats_left = max(0, (b.capacity or 0) - occupied)
+        b.occupancy_pct = int(round(occupied * 100.0 / b.capacity)) if b.capacity else 0
+        first_driver = None
+        try:
+            first_driver = b.drivers.all()[0] if hasattr(b, 'drivers') else None
+        except Exception:
+            first_driver = None
+        b.driver_name = first_driver.name if first_driver else '—'
+        b.display_location = b.current_location or b.route
+
+    today = dj_timezone.localdate()
+    trips_qs = scoped_trips(request.user)
+    total_trips = trips_qs.count()
+    delayed_trips = trips_qs.filter(status=Trip.STATUS_DELAYED).count()
+    alert_trips = list(
+        trips_qs.select_related('bus').filter(
+            status__in=[Trip.STATUS_DELAYED, Trip.STATUS_REROUTED, Trip.STATUS_UNEXPECTED_STOP]
+        ).order_by('-updated_at')[:5]
+    )
+    avg_delay = trips_qs.aggregate(v=Avg('delay_minutes'))['v'] or 0
+    total_riders = trips_qs.aggregate(v=Sum('passenger_count'))['v'] or 0
+    completed_trips = trips_qs.filter(status__in=[Trip.STATUS_COMPLETED, Trip.STATUS_ON_TIME]).count()
+    on_time_pct = round(completed_trips * 100.0 / total_trips, 1) if total_trips else 0
+
+    open_incidents = list(
+        scoped_incidents(request.user).select_related('bus').filter(
+            status__in=[Incident.STATUS_REPORTED, Incident.STATUS_RESPONDING]
+        ).order_by('-created_at')[:5]
+    )
+    open_incident_count = scoped_incidents(request.user).filter(
+        status__in=[Incident.STATUS_REPORTED, Incident.STATUS_RESPONDING]
+    ).count()
+
+    overdue_maintenance = list(
+        scoped_maintenances(request.user).select_related('bus').filter(
+            status__in=[MaintenanceRecord.STATUS_SCHEDULED, MaintenanceRecord.STATUS_OVERDUE],
+            next_due_date__lt=today,
+        ).order_by('next_due_date')[:5]
+    )
+    pending_maintenance = scoped_maintenances(request.user).exclude(
+        status=MaintenanceRecord.STATUS_COMPLETED
+    ).count()
+
+    alert_count = len(alert_trips) + open_incident_count + len(overdue_maintenance)
+
+    context = {
+        'today': today,
+        'total_buses': total_buses,
+        'active_buses': active_buses,
+        'maintenance_buses': maintenance_buses,
+        'available_buses': available_buses,
+        'total_drivers': total_drivers,
+        'total_routes': total_routes,
+        'gps_tracked': gps_tracked,
+        'capacity_sum': capacity_sum,
+        'occupied_sum': occupied_sum,
+        'available_seats': available_seats,
+        'recent_buses': recent_buses,
+        'total_trips': total_trips,
+        'delayed_trips': delayed_trips,
+        'alert_trips': alert_trips,
+        'avg_delay': round(avg_delay, 1),
+        'total_riders': total_riders,
+        'on_time_pct': on_time_pct,
+        'open_incidents': open_incidents,
+        'open_incident_count': open_incident_count,
+        'overdue_maintenance': overdue_maintenance,
+        'pending_maintenance': pending_maintenance,
+        'alert_count': alert_count,
+    }
+    return render(request, 'home.html', context)
 
 
 @require_http_methods(['GET', 'POST'])

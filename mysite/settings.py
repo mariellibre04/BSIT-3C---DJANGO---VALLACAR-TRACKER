@@ -41,6 +41,13 @@ INSTALLED_APPS = [
     'apps.core',
     'apps.users',
     'apps.info',
+    'apps.bus',
+    'apps.driver',
+    'apps.conductor',
+    'apps.passengers',
+    'apps.maintenance',
+    'apps.trips',
+    'apps.incidents',
 ]
 
 MIDDLEWARE = [

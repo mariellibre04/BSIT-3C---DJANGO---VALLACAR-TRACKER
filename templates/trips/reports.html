@@ -1,0 +1,75 @@
+{% extends "theme/base.html" %}
+{% block content %}
+<div class="container-xl">
+  <div class="page-header d-print-none"><div class="row align-items-center"><div class="col">
+    <div class="page-pretitle">Trip Analytics &amp; Reports</div>
+    <h2 class="page-title mb-0">Performance Reports</h2>
+    <div class="text-muted small">Completed trips, delays, bus utilization, and route performance.</div>
+  </div><div class="col-auto">
+    <a href="?export=csv" class="btn btn-outline-secondary btn-sm"><i class="fa-solid fa-download me-1"></i> Export CSV</a>
+    <a href="{% url 'trips:trip_list' %}" class="btn btn-primary btn-sm">Manage trips</a>
+  </div></div></div><br>
+
+  <div class="row row-cards g-3 mb-3">
+    <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-muted small text-uppercase fw-bold">Total trips</div><div class="h1 mb-0">{{ total_trips }}</div><div class="text-muted small">{{ completed }} completed/on-time</div></div></div></div>
+    <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-muted small text-uppercase fw-bold">On-time rate</div><div class="h1 mb-0">{{ on_time_pct }}%</div><div class="text-muted small">{{ delayed }} delayed &bull; {{ rerouted }} rerouted &bull; {{ unexpected }} stops</div></div></div></div>
+    <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-muted small text-uppercase fw-bold">Avg delay</div><div class="h1 mb-0">{{ avg_delay }}<span class="fs-4 text-muted"> min</span></div><div class="text-muted small">{{ total_riders }} riders moved</div></div></div></div>
+    <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-muted small text-uppercase fw-bold">Seat utilization</div><div class="h1 mb-0">{{ utilization_pct }}%</div><div class="text-muted small">{{ occupied_total }}/{{ capacity_total }} seats filled &bull; {{ open_incidents }} open incidents &bull; {{ pending_maint }} pending maintenance</div></div></div></div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Trips by status</div></div>
+        <div class="card-body"><div id="chart-trip-status"></div></div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Route performance (top 15)</div></div>
+        <div class="table-responsive"><table class="table table-vcenter card-table text-nowrap">
+          <thead><tr><th>Route</th><th>Trips</th><th>Delayed</th><th>Avg delay</th><th>Riders</th></tr></thead>
+          <tbody>
+          {% for r in route_rows %}
+          <tr><td class="fw-semibold">{{ r.route|default:"—" }}</td><td>{{ r.trips }}</td>
+            <td>{% if r.delayed_trips %}<span class="badge bg-danger-lt text-danger">{{ r.delayed_trips }}</span>{% else %}<span class="text-muted">0</span>{% endif %}</td>
+            <td class="text-muted">{{ r.avg_delay|floatformat:1 }} min</td><td>{{ r.riders|default:0 }}</td></tr>
+          {% empty %}<tr><td colspan="5"><div class="empty py-4"><p class="empty-title">No trip data yet</p></div></td></tr>{% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  </div><br>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Bus utilization (first 20)</div></div>
+    <div class="table-responsive"><table class="table table-vcenter card-table text-nowrap">
+      <thead><tr><th>Bus</th><th>Route</th><th>Occupied</th><th>Seats left</th><th>Utilization</th><th>Trips</th></tr></thead>
+      <tbody>
+      {% for b in bus_rows %}
+      <tr><td class="fw-semibold">{{ b.bus_number }}</td><td class="text-muted">{{ b.route }}</td>
+        <td>{{ b.occupied }}/{{ b.capacity }}</td><td>{{ b.seats_left }}</td>
+        <td><div class="d-flex align-items-center gap-2"><div class="progress" style="width:90px;height:6px;"><div class="progress-bar" style="width:{{ b.utilization }}%;"></div></div><span class="small text-muted">{{ b.utilization }}%</span></div></td>
+        <td>{{ b.trips }}</td></tr>
+      {% empty %}<tr><td colspan="6"><div class="empty py-4"><p class="empty-title">No buses to analyze</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (!window.ApexCharts) return;
+  const data = [
+    {% for s in status_breakdown %}{ x: '{{ s.status }}', y: {{ s.n }} },{% endfor %}
+  ];
+  new ApexCharts(document.getElementById('chart-trip-status'), {
+    chart: { type: 'donut', height: 260, fontFamily: 'inherit' },
+    series: data.map(d => d.y),
+    labels: data.map(d => d.x),
+    legend: { position: 'bottom' },
+  }).render();
+});
+</script>
+{% endblock %}

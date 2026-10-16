@@ -1,13 +1,13 @@
 <aside class="navbar navbar-vertical navbar-expand-lg navbar-dark dh-sidebar">
   <div class="container-fluid">
     <div class="navbar-brand navbar-brand-autodark dh-brand">
-      <a href="." class="d-flex align-items-center gap-2 text-decoration-none">
-        <span class="dh-brand-mark">
-          <i class="fa-solid fa-shield-halved"></i>
+      <a href="{% url 'dashboard' %}" class="d-flex align-items-center gap-2 text-decoration-none">
+        <span class="dh-brand-mark" style="background:linear-gradient(135deg,#C1121F 0%,#F4A100 100%);">
+          <i class="fa-solid fa-bus"></i>
         </span>
         <span class="lh-1">
-          <span class="dh-brand-name">Project<span class="text-warning">V3</span></span>
-          <span class="dh-brand-sub">Management System</span>
+          <span class="dh-brand-name">VALLACAR <span class="text-warning">TRACKER</span></span>
+          <span class="dh-brand-sub">Vallacar Transit Inc. &bull; Bus Tracking</span>
         </span>
       </a>
     </div>
@@ -29,7 +29,7 @@
 
         <li class="nav-item">
           <span class="dh-nav-section">
-            Menu
+            Fleet Overview
           </span>
         </li>
         <li class="nav-item mb-1">
@@ -42,20 +42,113 @@
         </li>
 
         <li class="nav-item">
-          <a class="nav-link {% if request.resolver_match.app_name == 'users' %}active{% endif %}" href="{% url 'users:user_list' %}">
+          <a class="nav-link {% if request.resolver_match.app_name == 'bus' %}active{% endif %}" href="{% url 'bus:bus_list' %}">
             <span class="nav-link-icon d-md-none d-lg-inline-block">
-              <i class="nav-icon fas fa-users"></i>
+              <i class="nav-icon fas fa-bus"></i>
             </span>
-            <span class="nav-link-title">Users</span>
+            <span class="nav-link-title">Buses</span>
           </a>
         </li>
 
         <li class="nav-item">
-          <a class="nav-link {% if request.resolver_match.app_name == 'info' %}active{% endif %}" href="{% url 'info:info_list' %}">
+          <a class="nav-link {% if request.resolver_match.app_name == 'driver' %}active{% endif %}" href="{% url 'driver:driver_list' %}">
             <span class="nav-link-icon d-md-none d-lg-inline-block">
-              <i class="nav-icon fas fa-address-card"></i>
+              <i class="nav-icon fas fa-id-card"></i>
             </span>
-            <span class="nav-link-title">Info</span>
+            <span class="nav-link-title">Drivers</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.app_name == 'conductor' %}active{% endif %}" href="{% url 'conductor:conductor_list' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-clipboard-user"></i>
+            </span>
+            <span class="nav-link-title">Conductors</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.app_name == 'passengers' %}active{% endif %}" href="{% url 'passengers:passenger_list' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-users"></i>
+            </span>
+            <span class="nav-link-title">Passengers</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <span class="dh-nav-section">
+            Live Operations
+          </span>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.url_name == 'bus_map' %}active{% endif %}" href="{% url 'bus:bus_map' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-map-location-dot"></i>
+            </span>
+            <span class="nav-link-title">Live GPS Map</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.app_name == 'trips' and request.resolver_match.url_name == 'trip_list' %}active{% endif %}" href="{% url 'trips:trip_list' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-route"></i>
+            </span>
+            <span class="nav-link-title">Trips</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.url_name == 'alerts' %}active{% endif %}" href="{% url 'trips:alerts' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-bell"></i>
+            </span>
+            <span class="nav-link-title">Delay Alerts</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.app_name == 'maintenance' %}active{% endif %}" href="{% url 'maintenance:maintenance_list' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-screwdriver-wrench"></i>
+            </span>
+            <span class="nav-link-title">Maintenance</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.app_name == 'incidents' %}active{% endif %}" href="{% url 'incidents:incident_list' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-triangle-exclamation"></i>
+            </span>
+            <span class="nav-link-title">Incidents</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.url_name == 'reports' %}active{% endif %}" href="{% url 'trips:reports' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-chart-line"></i>
+            </span>
+            <span class="nav-link-title">Reports</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <span class="dh-nav-section">
+            Management
+          </span>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.app_name == 'users' %}active{% endif %}" href="{% url 'users:user_list' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-user-gear"></i>
+            </span>
+            <span class="nav-link-title">Users</span>
           </a>
         </li>
 
@@ -70,6 +163,13 @@
         </li>
         {% endif %}
 
+        <li class="nav-item mt-2">
+          <div class="mx-3 px-3 py-2 rounded-3 d-flex align-items-center gap-2" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.25);">
+            <span class="d-inline-block rounded-circle" style="width:.6rem;height:.6rem;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.2);"></span>
+            <span class="small fw-semibold text-white">System Status: Online</span>
+          </div>
+        </li>
+
         <li class="nav-item mt-auto dh-nav-sidebar-footer">
           <div class="dh-user-card">
             <a href="{% url 'users:user_list' %}" class="d-flex align-items-center gap-2 text-decoration-none text-white min-w-0 w-100">
@@ -77,7 +177,7 @@
               <span class="min-w-0 flex-grow-1">
                 <span class="dh-user-name">{{ user.username }}</span>
                 <span class="dh-user-role">
-                  {% if user.is_superuser %}Administrator{% elif user.is_authenticated %}Instructor{% endif %}
+                  {% if user.is_superuser %}Administrator{% elif user.is_authenticated %}Dispatcher{% endif %}
                 </span>
               </span>
             </a>

@@ -1,0 +1,16 @@
+{# Minimal public sidebar: app pages require login, so anonymous users never land here. #}
+<aside class="navbar navbar-vertical navbar-expand-lg navbar-dark dh-sidebar">
+  <div class="container-fluid">
+    <div class="navbar-brand navbar-brand-autodark dh-brand">
+      <a href="{% url 'login' %}" class="d-flex align-items-center gap-2 text-decoration-none">
+        <span class="dh-brand-mark" style="background:linear-gradient(135deg,#C1121F 0%,#F4A100 100%);">
+          <i class="fa-solid fa-bus"></i>
+        </span>
+        <span class="lh-1">
+          <span class="dh-brand-name">VALLACAR <span class="text-warning">TRACKER</span></span>
+          <span class="dh-brand-sub">Vallacar Transit Inc. &bull; Bus Tracking</span>
+        </span>
+      </a>
+    </div>
+  </div>
+</aside>

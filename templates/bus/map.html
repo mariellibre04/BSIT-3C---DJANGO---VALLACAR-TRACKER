@@ -1,0 +1,176 @@
+{% extends "theme/base.html" %}
+{% block content %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  #gps-map { height: 480px; border-radius: 0 0 14px 14px; z-index: 1; }
+  .vt-card { background:#fff; border:1px solid var(--tblr-border-color); border-radius:14px; box-shadow:var(--tblr-shadow-card); overflow:hidden; }
+  .vt-btn-red { background:#C1121F; border-color:#C1121F; color:#fff; font-weight:700; }
+  .vt-btn-red:hover { background:#a50e1b; border-color:#a50e1b; color:#fff; }
+  .bus-row.active { background: rgba(193,18,31,.06); }
+  .leaflet-popup-content b { color:#1c1e36; }
+</style>
+
+<div class="container-xl">
+  <div class="page-header d-print-none">
+    <div class="row align-items-center">
+      <div class="col">
+        <div class="page-pretitle">Real-Time GPS Tracking</div>
+        <h2 class="page-title mb-0">Live Bus Map</h2>
+        <div class="text-muted small">Current location of each bus, with route and movement status. {{ with_gps }} of {{ buses|length }} buses have GPS coordinates.</div>
+      </div>
+      <div class="col-auto">
+        <button class="btn vt-btn-red btn-sm" id="refreshGpsBtn"><i class="fa-solid fa-rotate me-1"></i> Refresh now</button>
+        <a href="{% url 'bus:bus_list' %}" class="btn btn-outline-secondary btn-sm"><i class="fa-solid fa-bus me-1"></i> Manage buses</a>
+      </div>
+    </div>
+  </div><br>
+
+  <div id="gpsAlert" class="alert alert-danger d-none" role="alert"></div>
+
+  <div class="row g-3">
+    <div class="col-lg-8">
+      <div class="vt-card">
+        <div class="px-3 py-2 d-flex align-items-center gap-2 flex-wrap" style="border-bottom:1px solid var(--tblr-border-color);">
+          <span class="badge bg-success-lt text-success"><span class="d-inline-block rounded-circle bg-success me-1" style="width:.5rem;height:.5rem;"></span>Live</span>
+          <span class="text-muted small" id="gpsUpdatedLabel">Loading positions…</span>
+          <span class="ms-auto text-muted small">Auto-refresh every 15s &bull; OpenStreetMap</span>
+        </div>
+        <div id="gps-map"></div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="vt-card">
+        <div class="px-3 py-2 fw-bold" style="border-bottom:1px solid var(--tblr-border-color);">Buses ({{ buses|length }})</div>
+        <div class="list-group list-group-flush overflow-auto" style="max-height:480px;" id="busSideList">
+          {% for b in buses %}
+          <button type="button" class="list-group-item list-group-item-action bus-row d-flex gap-2 align-items-start text-start" data-bus-id="{{ b.id }}" data-lat="{{ b.latitude|default:'' }}" data-lng="{{ b.longitude|default:'' }}">
+            <span class="avatar avatar-sm rounded" style="background:#C1121F;color:#fff;font-weight:700;">{{ b.bus_number|first|upper }}</span>
+            <span class="min-w-0 flex-grow-1">
+              <span class="d-flex justify-content-between gap-2">
+                <strong>{{ b.bus_number }}</strong>
+                {% if b.seats_left <= 0 %}<span class="badge bg-danger-lt text-danger">Full</span>
+                {% else %}<span class="badge bg-success-lt text-success">{{ b.seats_left }} seats</span>{% endif %}
+              </span>
+              <span class="d-block text-muted small"><i class="fa-solid fa-location-dot" style="color:#C1121F;"></i> {{ b.current_location|default:b.route }}</span>
+              <span class="d-block text-muted small">{{ b.get_movement_status_display }} &bull; {{ b.route }}</span>
+            </span>
+          </button>
+          {% empty %}
+          <div class="p-4 text-center text-muted">No buses yet. <a href="{% url 'bus:bus_list' %}">Add one</a>.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal modal-blur fade" id="gpsModal" tabindex="-1">
+  <div class="modal-dialog modal-md modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="gpsModalTitle">Update GPS</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form id="gpsForm">{% csrf_token %}<input type="hidden" name="id" id="gps_bus_id">
+      <div class="modal-body">
+        <div id="gpsFormError" class="alert alert-danger d-none"></div>
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Current location</label><input type="text" name="current_location" id="gps_location" class="form-control" placeholder="e.g. Bacolod North Terminal - Bay 3"></div>
+          <div class="col-6"><label class="form-label">Latitude</label><input type="number" step="0.000001" min="-90" max="90" name="latitude" id="gps_lat" class="form-control" placeholder="10.676500"></div>
+          <div class="col-6"><label class="form-label">Longitude</label><input type="number" step="0.000001" min="-180" max="180" name="longitude" id="gps_lng" class="form-control" placeholder="122.950900"></div>
+          <div class="col-12"><label class="form-label">Movement status</label>
+            <select name="movement_status" id="gps_movement" class="form-select">
+              {% for val, label in movement_choices %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-12 text-muted small">Tip: click a marker popup or a bus in the list to update its GPS. Leave coordinates blank to keep the previous fix.</div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn vt-btn-red">Save GPS</button></div>
+    </form>
+  </div></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function() {
+  const DEFAULT_LAT = {{ default_lat }};
+  const DEFAULT_LNG = {{ default_lng }};
+  const map = L.map('gps-map').setView([DEFAULT_LAT, DEFAULT_LNG], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  const markers = {};
+  const label = document.getElementById('gpsUpdatedLabel');
+  const alertBox = document.getElementById('gpsAlert');
+  const gpsModal = new bootstrap.Modal(document.getElementById('gpsModal'));
+  const moveColor = { at_terminal:'#6366f1', en_route:'#22c55e', stopped:'#f59e0b', delayed:'#ef4444', off_route:'#a855f7' };
+
+  function seatBadge(b) {
+    if (b.available_seats <= 0) return '<span class="badge bg-danger-lt text-danger">Full</span>';
+    if (b.available_seats <= 10) return '<span class="badge bg-warning-lt text-warning">' + b.available_seats + ' left</span>';
+    return '<span class="badge bg-success-lt text-success">' + b.available_seats + ' seats</span>';
+  }
+  function popupHtml(b) {
+    return '<b>' + b.bus_number + '</b> (' + b.plate_number + ')<br>' +
+      '<i class="fa-solid fa-location-dot"></i> ' + (b.current_location || b.route) + '<br>' +
+      b.route + ' &bull; ' + b.movement_display + '<br>' +
+      b.passengers_count + '/' + b.capacity + ' aboard &bull; ' + b.available_seats + ' free<br>' +
+      '<button class="btn btn-sm vt-btn-red mt-1" onclick="openGpsModal(' + b.id + ')">Update GPS</button>';
+  }
+  function draw(buses) {
+    const bounds = [];
+    buses.forEach(function(b) {
+      if (b.latitude == null || b.longitude == null) return;
+      const ll = [b.latitude, b.longitude];
+      bounds.push(ll);
+      const color = moveColor[b.movement_status] || '#C1121F';
+      const icon = L.divIcon({ className: '', html: '<div style="background:' + color + ';color:#fff;border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:800;box-shadow:0 4px 10px rgba(0,0,0,.35);"><i class="fa-solid fa-bus"></i></div>', iconSize: [30, 30], iconAnchor: [15, 15] });
+      if (markers[b.id]) { markers[b.id].setLatLng(ll).setIcon(icon).setPopupContent(popupHtml(b)); }
+      else { markers[b.id] = L.marker(ll, { icon: icon }).addTo(map).bindPopup(popupHtml(b)); }
+    });
+    if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+    label.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' • ' + buses.length + ' buses tracked';
+  }
+  function load() {
+    fetch('{% url "bus:bus_locations_ajax" %}')
+      .then(r => r.json()).then(d => draw(d.buses || []))
+      .catch(() => { alertBox.textContent = 'Could not refresh GPS positions.'; alertBox.classList.remove('d-none'); });
+  }
+  window.openGpsModal = function(id) {
+    fetch('/bus/ajax/get/' + id + '/').then(r => r.json()).then(function(b) {
+      document.getElementById('gps_bus_id').value = b.id;
+      document.getElementById('gpsModalTitle').textContent = 'Update GPS — ' + b.bus_number;
+      document.getElementById('gps_location').value = b.current_location || '';
+      document.getElementById('gps_lat').value = b.latitude == null ? '' : b.latitude;
+      document.getElementById('gps_lng').value = b.longitude == null ? '' : b.longitude;
+      document.getElementById('gps_movement').value = b.movement_status;
+      gpsModal.show();
+    });
+  };
+  document.querySelectorAll('.bus-row').forEach(function(row) {
+    row.addEventListener('click', function(e) {
+      if (e.target.closest('button') && !e.target.closest('.bus-row')) return;
+      const id = row.getAttribute('data-bus-id');
+      const lat = parseFloat(row.getAttribute('data-lat'));
+      const lng = parseFloat(row.getAttribute('data-lng'));
+      document.querySelectorAll('.bus-row').forEach(r => r.classList.remove('active'));
+      row.classList.add('active');
+      if (!isNaN(lat) && !isNaN(lng)) { map.setView([lat, lng], 14); if (markers[id]) markers[id].openPopup(); }
+      else { window.openGpsModal(id); }
+    });
+    row.addEventListener('dblclick', function() { window.openGpsModal(row.getAttribute('data-bus-id')); });
+  });
+  document.getElementById('gpsForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const id = document.getElementById('gps_bus_id').value;
+    const fd = new FormData(this);
+    const err = document.getElementById('gpsFormError');
+    fetch('/bus/ajax/gps/' + id + '/', { method: 'POST', headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }, body: fd })
+      .then(r => r.json().then(d => ({ ok: r.ok, d: d }))).then(function(res) {
+        if (!res.ok) { err.textContent = res.d.error || 'Could not save.'; err.classList.remove('d-none'); return; }
+        gpsModal.hide(); load(); setTimeout(() => window.location.reload(), 600);
+      }).catch(() => { err.textContent = 'Something went wrong.'; err.classList.remove('d-none'); });
+  });
+  document.getElementById('refreshGpsBtn').addEventListener('click', load);
+  load();
+  setInterval(load, 15000);
+})();
+</script>
+{% endblock %}
