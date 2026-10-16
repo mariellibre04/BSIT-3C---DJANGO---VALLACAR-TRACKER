@@ -1,0 +1,104 @@
+{% extends "theme/base.html" %}
+{% block content %}
+<style>
+  .eta-card { background:#fff; border:1px solid var(--tblr-border-color); border-radius:14px; box-shadow:var(--tblr-shadow-card); overflow:hidden; }
+  .eta-time { font-size:2rem; font-weight:800; letter-spacing:-.03em; line-height:1; color:#1c1e36; }
+  .vt-btn-red { background:#C1121F; border-color:#C1121F; color:#fff; font-weight:700; }
+  .vt-btn-red:hover { background:#a50e1b; border-color:#a50e1b; color:#fff; }
+</style>
+
+<div class="container-xl">
+  <div class="text-center mx-auto mb-3" style="max-width:44rem;">
+    <div class="page-pretitle">Passenger ETA Board &bull; No login needed</div>
+    <h2 class="mb-1 fw-bold" style="letter-spacing:-.02em;">When is my Ceres coming?</h2>
+    <div class="text-muted">Going <strong>{{ origin_name }}</strong> → <strong>{{ dest_name }}</strong>?
+      Check the assigned liners and their estimated arrival before leaving home.</div>
+  </div>
+
+  <div class="eta-card p-3 mb-3">
+    <form method="GET" class="d-flex flex-column flex-md-row align-items-stretch align-items-md-end justify-content-center gap-2">
+      <div style="min-width:200px;" class="flex-grow-1">
+        <label class="form-label">From (where you will wait)</label>
+        <select name="from" class="form-select" onchange="this.form.submit()">
+          {% for t in terminals %}<option value="{{ t.name }}" {% if t.name == origin_name %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <button type="button" class="btn btn-outline-secondary" id="swapTerminals" title="Swap origin and destination"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
+      <div style="min-width:200px;" class="flex-grow-1">
+        <label class="form-label">To (where you are going)</label>
+        <select name="to" class="form-select" onchange="this.form.submit()">
+          {% for t in terminals %}<option value="{{ t.name }}" {% if t.name == dest_name %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn vt-btn-red"><i class="fa-solid fa-magnifying-glass me-1"></i> Check arrival</button>
+    </form>
+    <div class="text-muted small text-center mt-2">Estimates as of {{ now|date:"g:i A" }} &bull; auto-refreshes every minute &bull; based on live bus position and highway travel time.</div>
+  </div>
+
+  {% if error %}
+  <div class="alert alert-warning" role="alert">{{ error }}</div>
+  {% endif %}
+
+  <div class="row g-3">
+    {% for r in results %}
+    <div class="col-md-6 col-lg-4">
+      <div class="eta-card p-3 h-100 d-flex flex-column gap-2">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <div class="fw-bold fs-3">{{ r.bus_number }}</div>
+            <div class="text-muted small">{{ r.plate_number }} &bull; {{ r.route }}</div>
+          </div>
+          {% if r.seats_left <= 0 %}
+          <span class="badge bg-danger text-white">FULL</span>
+          {% else %}
+          <span class="badge bg-success-lt text-success">{{ r.seats_left }} seats free</span>
+          {% endif %}
+        </div>
+        <div class="eta-time">{{ r.eta.label|default:"—" }}</div>
+        {% if r.eta %}
+          {% if r.eta.minutes > 0 %}
+          <div class="text-muted">Expected arrival <strong class="text-dark">{{ r.eta.eta|date:"g:i A" }}</strong> in {{ dest_name }} &bull; {{ r.eta.detail }}</div>
+          {% else %}
+          <div class="text-success fw-semibold"><i class="fa-solid fa-circle-check me-1"></i>{{ r.eta.detail }} — head to the terminal now.</div>
+          {% endif %}
+        {% else %}
+        <div class="text-muted">No position available for this bus yet.</div>
+        {% endif %}
+        <div class="text-muted small"><i class="fa-solid fa-location-dot me-1" style="color:#C1121F;"></i>{{ r.current_location }} &bull; {{ r.movement_display }}{% if r.is_approx %} (approx.){% endif %}</div>
+        {% if r.trip %}
+        <div class="small pt-2 mt-auto" style="border-top:1px solid var(--tblr-border-color);">
+          <i class="fa-regular fa-clock me-1 text-muted"></i>Scheduled {{ r.trip.scheduled }} &bull; {{ r.trip.status }}
+          {% if r.trip.is_late %}<span class="badge bg-danger-lt text-danger ms-1">+{{ r.trip.delay }} min late</span>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% empty %}
+    {% if not error %}
+    <div class="col-12">
+      <div class="eta-card p-5 text-center">
+        <div class="empty-icon mb-2"><i class="fa-solid fa-bus fa-2x text-muted"></i></div>
+        <p class="empty-title">No Ceres liner assigned to {{ origin_name }} → {{ dest_name }} right now</p>
+        <p class="empty-subtitle text-muted">Try another terminal pair, or check the <a href="{% url 'bus:bus_map' %}">Live Tracking</a> map for all buses on the road.</p>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  document.getElementById('swapTerminals').addEventListener('click', function() {
+    const form = this.closest('form');
+    const from = form.querySelector('select[name="from"]');
+    const to = form.querySelector('select[name="to"]');
+    const tmp = from.value; from.value = to.value; to.value = tmp;
+    form.submit();
+  });
+  setTimeout(function() { window.location.reload(); }, 60000);
+})();
+</script>
+{% endblock %}

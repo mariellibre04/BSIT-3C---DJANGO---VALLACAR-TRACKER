@@ -23,6 +23,8 @@
       <h2 class="mb-0 fw-bold" style="letter-spacing:-.02em;">Live Tracking</h2>
       <div class="text-muted small">Bus Station <span class="mx-1">&bull;</span> Map</div>
     </div>
+    <div class="d-flex gap-2 flex-wrap">
+    <a href="{% url 'bus:passenger_eta' %}" class="btn vt-btn-red"><i class="fa-solid fa-clock me-1"></i> Passenger ETA</a>
     <div class="dropdown">
       <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="routesDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
         Routes <span class="badge bg-primary text-white ms-1" id="routesCount">{{ routes|length }}</span>
@@ -38,6 +40,7 @@
         <span class="dropdown-item-text text-muted small">No routes yet.</span>
         {% endfor %}
       </div>
+    </div>
     </div>
   </div>
 
@@ -68,6 +71,7 @@
               <span class="dist-badge">{{ b.seats_left }} seats</span>
               {% endif %}
               <span class="d-block text-muted" style="font-size:.68rem;">{{ b.get_movement_status_display }}{% if b.is_approx %} &bull; approx. location{% endif %}</span>
+              <span class="d-block fw-semibold" style="font-size:.72rem;color:#1D4ED8;" data-eta-line="{{ b.id }}">{% if b.eta %}{% if b.eta.minutes > 0 %}Arrives {{ b.eta.eta|date:"g:i A" }} &bull; {{ b.eta.label }} left{% else %}Arriving now{% endif %}{% else %}&mdash;{% endif %}</span>
             </span>
           </div>
           {% empty %}
@@ -82,7 +86,8 @@
           <span class="badge bg-success-lt text-success"><span class="d-inline-block rounded-circle bg-success me-1" style="width:.5rem;height:.5rem;"></span>Live</span>
           <span class="text-muted small" id="liveUpdatedLabel">Loading positions…</span>
           <span class="text-muted small">({{ with_gps }} GPS &bull; {{ approx_count }} approx. route pins)</span>
-          <span class="ms-auto d-flex gap-1 flex-wrap" id="routeLegend">
+          <button class="btn btn-sm btn-outline-secondary ms-auto" id="resetViewBtn" title="Show the whole Philippines"><i class="fa-solid fa-earth-asia me-1"></i>Philippines</button>
+          <span class="d-flex gap-1 flex-wrap" id="routeLegend">
             {% for r in routes %}<span class="d-inline-flex align-items-center gap-1 small text-muted"><span class="route-dot" style="background:{{ r.color }};"></span>{{ r.name|truncatechars:18 }}</span>{% endfor %}
           </span>
         </div>
@@ -121,17 +126,23 @@
 (function() {
   const DEFAULT_LAT = {{ default_lat }};
   const DEFAULT_LNG = {{ default_lng }};
+  const PH_CENTER = [12.8797, 121.7740];
+  const PH_BOUNDS = [[3.5, 115.5], [21.5, 127.5]];
   const ROUTE_COLORS = {
     {% for r in routes %}'{{ r.name|escapejs }}': '{{ r.color }}'{% if not forloop.last %},{% endif %}{% endfor %}
   };
   const FALLBACK = '#C1121F';
   const colorOf = (route) => ROUTE_COLORS[route] || FALLBACK;
 
-  const map = L.map('live-map').setView([DEFAULT_LAT, DEFAULT_LNG], 11);
+  // Philippines-wide view; buses pull the first view to their area, and the
+  // Philippines button always brings the whole country back.
+  const map = L.map('live-map', { minZoom: 5, maxBounds: PH_BOUNDS, maxBoundsViscosity: 0.7 }).setView([DEFAULT_LAT, DEFAULT_LNG], 6);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community' }).addTo(map);
+  document.getElementById('resetViewBtn').addEventListener('click', function() { map.setView(PH_CENTER, 6); });
 
   const markers = {};
   const routeLines = {};
+  const sim = {}; // bus id -> live simulation state
   const label = document.getElementById('liveUpdatedLabel');
   const alertBox = document.getElementById('liveAlert');
   const countBadge = document.getElementById('busesOnRouteCount');
@@ -139,12 +150,45 @@
   let activeRoutes = new Set(Object.keys(ROUTE_COLORS));
   let firstFit = true;
 
-  function popupHtml(b) {
+  function haversine(a, b, c, d) {
+    const r = 6371, p1 = a * Math.PI / 180, p2 = c * Math.PI / 180;
+    const dp = (c - a) * Math.PI / 180, dl = (d - b) * Math.PI / 180;
+    const h = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+    return 2 * r * Math.asin(Math.sqrt(h));
+  }
+  function speedOf(movement) { return movement === 'delayed' ? 30 : 45; }
+  function fmtTime(d) {
+    let h = d.getHours(); const m = String(d.getMinutes()).padStart(2, '0');
+    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    return h + ':' + m + ' ' + ap;
+  }
+  function fmtLeft(mins) {
+    if (mins <= 1) return 'Arriving now';
+    const h = Math.floor(mins / 60), m = Math.round(mins % 60);
+    return h ? ('~' + h + ' h ' + m + ' min left') : ('~' + m + ' min left');
+  }
+  // Estimated arrival from a position to a terminal (mirrors server ETA math).
+  function etaTo(lat, lng, dest, movement) {
+    if (!dest || lat == null || lng == null) return null;
+    const km = haversine(lat, lng, dest.lat, dest.lng) * 1.3;
+    if (km < 1.5) return { minutes: 0, arrival: new Date(), dest: dest.name };
+    const minutes = Math.round(km / speedOf(movement) * 60);
+    return { minutes: minutes, arrival: new Date(Date.now() + minutes * 60000), dest: dest.name };
+  }
+  function arrivalLine(b, lat, lng) {
+    const dest = b.route_to || b.route_from;
+    const e = etaTo(lat, lng, dest, b.movement_status);
+    if (!e) return '&mdash;';
+    if (e.minutes <= 1) return 'Arriving now in ' + e.dest;
+    return 'Arrives ' + fmtTime(e.arrival) + ' &bull; ' + fmtLeft(e.minutes);
+  }
+  function popupHtml(b, lat, lng) {
     return '<b>' + b.bus_number + '</b> (' + b.plate_number + ')<br>' +
       '<i class="fa-solid fa-location-dot"></i> ' + (b.current_location || b.route) + '<br>' +
       b.route + ' &bull; ' + b.movement_display + '<br>' +
+      '<span style="color:#1D4ED8;font-weight:700;">' + arrivalLine(b, lat == null ? b.latitude : lat, lng == null ? b.longitude : lng) + '</span><br>' +
       b.passengers_count + '/' + b.capacity + ' aboard &bull; ' + b.available_seats + ' free<br>' +
-      (b.is_approx ? '<span class="badge bg-warning-lt text-warning mt-1">Approx. route pin &mdash; no GPS fix yet</span><br>' : '') +
+      (b.is_approx ? '<span class="badge bg-warning-lt text-warning mt-1">Simulated movement &mdash; no GPS fix yet</span><br>' : '') +
       '<button class="btn btn-sm vt-btn-red mt-1" onclick="openGpsModal(' + b.id + ')">Update GPS</button>';
   }
   function busIcon(route, isApprox) {
@@ -153,19 +197,42 @@
     const opacity = isApprox ? '0.85' : '1';
     return L.divIcon({ className: '', html: '<div style="background:' + c + ';color:#fff;border:' + border + ';opacity:' + opacity + ';border-radius:8px;min-width:30px;height:24px;padding:0 4px;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;box-shadow:0 4px 10px rgba(0,0,0,.35);white-space:nowrap;"><i class="fa-solid fa-bus me-1"></i><span class="bus-chip-label"></span></div>', iconSize: [34, 24], iconAnchor: [17, 12] });
   }
+  // Simulated timetable: approx buses glide between their route endpoints and
+  // back, so the map is visibly live even before GPS hardware is installed.
+  function tripMinutes(s) {
+    if (!s.from || !s.to) return 0;
+    return Math.max(5, haversine(s.from.lat, s.from.lng, s.to.lat, s.to.lng) * 1.3 / speedOf(s.movement) * 60);
+  }
+  function animState(s) {
+    const period = Math.max(2 * tripMinutes(s), 10);
+    const cyc = (((Date.now() / 60000) + s.offsetMin) % period) / (period / 2); // 0..2
+    let p, heading;
+    if (cyc <= 1) { p = cyc; heading = s.to; } else { p = 2 - cyc; heading = s.from; }
+    return {
+      lat: s.from.lat + (s.to.lat - s.from.lat) * p,
+      lng: s.from.lng + (s.to.lng - s.from.lng) * p,
+      heading: heading
+    };
+  }
   function drawRoutes(buses) {
     Object.values(routeLines).forEach(l => map.removeLayer(l));
     for (const k in routeLines) delete routeLines[k];
     const byRoute = {};
     buses.forEach(function(b) {
       if (!activeRoutes.has(b.route)) return;
-      if (b.latitude == null || b.longitude == null) return;
-      (byRoute[b.route] = byRoute[b.route] || []).push([b.latitude, b.longitude]);
+      if (b.route_from && b.route_to) {
+        (byRoute[b.route] = byRoute[b.route] || { pts: {}, color: colorOf(b.route) });
+        byRoute[b.route].pts['a'] = [b.route_from.lat, b.route_from.lng];
+        byRoute[b.route].pts['b'] = [b.route_to.lat, b.route_to.lng];
+      } else if (b.latitude != null && b.longitude != null) {
+        (byRoute[b.route] = byRoute[b.route] || { pts: {}, color: colorOf(b.route) });
+        byRoute[b.route].pts[b.id] = [b.latitude, b.longitude];
+      }
     });
     Object.keys(byRoute).forEach(function(route) {
-      const pts = byRoute[route].sort((a, c) => a[0] - c[0] || a[1] - c[1]);
+      const pts = Object.values(byRoute[route].pts);
       if (pts.length >= 2) {
-        routeLines[route] = L.polyline(pts, { color: colorOf(route), weight: 4, opacity: 0.75 }).addTo(map);
+        routeLines[route] = L.polyline(pts, { color: byRoute[route].color, weight: 4, opacity: 0.75 }).addTo(map);
       }
     });
   }
@@ -175,10 +242,16 @@
     // remove markers for hidden routes
     Object.keys(markers).forEach(function(id) {
       const stillVisible = visible.some(b => String(b.id) === String(id));
-      if (!stillVisible) { map.removeLayer(markers[id]); delete markers[id]; }
+      if (!stillVisible) { map.removeLayer(markers[id]); delete markers[id]; delete sim[id]; }
     });
     visible.forEach(function(b) {
       if (b.latitude == null || b.longitude == null) return;
+      sim[b.id] = {
+        route: b.route, from: b.route_from, to: b.route_to,
+        isApprox: b.is_approx, movement: b.movement_status,
+        lat: b.latitude, lng: b.longitude,
+        offsetMin: (Number(b.id) * 53) % 60
+      };
       const ll = [b.latitude, b.longitude];
       bounds.push(ll);
       const icon = busIcon(b.route, b.is_approx);
@@ -188,13 +261,40 @@
       if (el) { const s = el.querySelector('.bus-chip-label'); if (s) s.textContent = b.bus_number; }
     });
     drawRoutes(buses);
-    if (bounds.length && firstFit) { map.fitBounds(bounds, { padding: [40, 40] }); firstFit = false; }
+    if (bounds.length && firstFit) { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 }); firstFit = false; }
     label.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' \u2022 ' + visible.length + ' buses on selected routes';
     countBadge.textContent = visible.length;
+    tick();
+  }
+  // Live tick every few seconds: glide simulated buses + refresh arrival countdowns.
+  function tick() {
+    Object.keys(sim).forEach(function(id) {
+      const s = sim[id];
+      if (!activeRoutes.has(s.route)) return;
+      let lat = s.lat, lng = s.lng, heading = s.to || s.from;
+      if (s.isApprox && s.from && s.to) {
+        const a = animState(s);
+        lat = a.lat; lng = a.lng; heading = a.heading;
+        if (markers[id]) markers[id].setLatLng([lat, lng]);
+      }
+      const line = document.querySelector('[data-eta-line="' + id + '"]');
+      if (line && heading) {
+        const e = etaTo(lat, lng, heading, s.movement);
+        line.innerHTML = e ? (e.minutes <= 1 ? 'Arriving now in ' + e.dest : 'Arrives ' + fmtTime(e.arrival) + ' &bull; ' + fmtLeft(e.minutes)) : '&mdash;';
+      }
+      if (markers[id] && markers[id].isPopupOpen()) {
+        const b = window._feedById && window._feedById[id];
+        if (b) markers[id].setPopupContent(popupHtml(b, lat, lng));
+      }
+    });
   }
   function load() {
     fetch('{% url "bus:bus_locations_ajax" %}')
-      .then(r => r.json()).then(d => draw(d.buses || []))
+      .then(r => r.json()).then(function(d) {
+        window._feedById = {};
+        (d.buses || []).forEach(b => { window._feedById[b.id] = b; });
+        draw(d.buses || []);
+      })
       .catch(() => { alertBox.textContent = 'Could not refresh live positions.'; alertBox.classList.remove('d-none'); });
   }
   window.openGpsModal = function(id) {
@@ -221,15 +321,13 @@
       load();
     });
   });
-  // Bus cards: click focuses marker, double-click opens GPS editor
+  // Bus cards: click focuses the (moving) marker, double-click opens GPS editor
   document.querySelectorAll('.bus-card').forEach(function(card) {
     card.addEventListener('click', function() {
       const id = card.getAttribute('data-bus-id');
       document.querySelectorAll('.bus-card').forEach(c => { c.style.borderLeftColor = ''; c.classList.remove('active'); });
       card.classList.add('active');
-      const lat = parseFloat(card.getAttribute('data-lat'));
-      const lng = parseFloat(card.getAttribute('data-lng'));
-      if (!isNaN(lat) && !isNaN(lng)) { map.setView([lat, lng], 14); if (markers[id]) markers[id].openPopup(); }
+      if (markers[id]) { map.setView(markers[id].getLatLng(), 13); markers[id].openPopup(); }
       else { window.openGpsModal(id); }
     });
     card.addEventListener('dblclick', function() { window.openGpsModal(card.getAttribute('data-bus-id')); });
@@ -246,6 +344,7 @@
   });
   load();
   setInterval(load, 15000);
+  setInterval(tick, 3000);
 })();
 </script>
 {% endblock %}

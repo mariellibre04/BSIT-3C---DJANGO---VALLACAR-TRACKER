@@ -63,10 +63,15 @@
      </div>
    </div>
  </div>
- <!-- <div class="text-center text-secondary mt-n1">
-  Don't have an account?
-  <a href="{% url 'register' %}" class="text-primary fw-bold">Register</a>
- </div> -->
+  <!-- <div class="text-center text-secondary mt-n1">
+   Don't have an account?
+   <a href="{% url 'register' %}" class="text-primary fw-bold">Register</a>
+  </div> -->
+  <div class="text-center mt-3">
+    <a href="{% url 'bus:passenger_eta' %}" class="btn btn-outline-danger w-100">
+      <i class="fa-solid fa-clock me-1"></i> Riding soon? Check Ceres arrival times — no login needed
+    </a>
+  </div>
 </div>
 
 {% include 'theme/settings.html' %}

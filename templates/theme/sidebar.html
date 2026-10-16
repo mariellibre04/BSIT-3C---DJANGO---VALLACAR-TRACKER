@@ -93,6 +93,15 @@
         </li>
 
         <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.url_name == 'passenger_eta' %}active{% endif %}" href="{% url 'bus:passenger_eta' %}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="nav-icon fas fa-clock"></i>
+            </span>
+            <span class="nav-link-title">Passenger ETA</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
           <a class="nav-link {% if request.resolver_match.app_name == 'trips' and request.resolver_match.url_name == 'trip_list' %}active{% endif %}" href="{% url 'trips:trip_list' %}">
             <span class="nav-link-icon d-md-none d-lg-inline-block">
               <i class="nav-icon fas fa-route"></i>

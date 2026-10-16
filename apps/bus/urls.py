@@ -6,6 +6,7 @@ app_name = 'bus'
 urlpatterns = [
     path('', views.bus_list_page, name='bus_list'),
     path('map/', views.bus_map_page, name='bus_map'),
+    path('eta/', views.passenger_eta_page, name='passenger_eta'),
     path('ajax/list/', views.bus_list_ajax, name='bus_list_ajax'),
     path('ajax/locations/', views.bus_locations_ajax, name='bus_locations_ajax'),
     path('ajax/get/<int:pk>/', views.bus_get_ajax, name='bus_get_ajax'),

@@ -38,27 +38,105 @@ def _parse_coord(raw, low, high):
     return value, None
 
 
-# Approximate terminal coordinates (Negros / Cebu corridors) used to locate a bus
-# on the map when it has no live GPS fix yet. Each entry: (place keywords, lat, lng).
-ROUTE_TERMINAL_GPS = [
-    (('bacolod',), 10.6765, 122.9509),
-    (('kabankalan', 'kabnakalan'), 9.9917, 122.8128),
-    (('dumaguete',), 9.3072, 123.3080),
-    (('san carlos', 'sancarlos'), 10.4966, 123.4224),
-    (('cadiz',), 10.9586, 123.1321),
-    (('victorias',), 10.9000, 123.0667),
-    (('sagay',), 10.8917, 123.4150),
-    (('escalante',), 10.8333, 123.5000),
-    (('sipalay',), 9.7500, 122.4000),
-    (('himamaylan',), 10.1003, 122.8702),
-    (('bais',), 9.5917, 123.1222),
-    (('tanjay',), 9.5167, 123.1583),
-    (('bayawan',), 9.3667, 122.8000),
-    (('canlaon',), 10.3833, 123.2000),
-    (('la carlota', 'lacarlota'), 10.4167, 122.9167),
-    (('guihulngan',), 10.1167, 123.2667),
-    (('cebu',), 10.3157, 123.8854),
+# Vallacar / Ceres terminals (Negros / Cebu corridors). Used both for the
+# passenger origin-destination picker and to locate a bus on the map when it
+# has no live GPS fix yet.
+TERMINALS = [
+    {'name': 'Bacolod', 'keywords': ('bacolod',), 'lat': 10.6765, 'lng': 122.9509},
+    {'name': 'Kabankalan', 'keywords': ('kabankalan', 'kabnakalan'), 'lat': 9.9917, 'lng': 122.8128},
+    {'name': 'Dumaguete', 'keywords': ('dumaguete',), 'lat': 9.3072, 'lng': 123.3080},
+    {'name': 'San Carlos', 'keywords': ('san carlos', 'sancarlos'), 'lat': 10.4966, 'lng': 123.4224},
+    {'name': 'Cadiz', 'keywords': ('cadiz',), 'lat': 10.9586, 'lng': 123.1321},
+    {'name': 'Victorias', 'keywords': ('victorias',), 'lat': 10.9000, 'lng': 123.0667},
+    {'name': 'Sagay', 'keywords': ('sagay',), 'lat': 10.8917, 'lng': 123.4150},
+    {'name': 'Escalante', 'keywords': ('escalante',), 'lat': 10.8333, 'lng': 123.5000},
+    {'name': 'Sipalay', 'keywords': ('sipalay',), 'lat': 9.7500, 'lng': 122.4000},
+    {'name': 'Himamaylan', 'keywords': ('himamaylan',), 'lat': 10.1003, 'lng': 122.8702},
+    {'name': 'Bais', 'keywords': ('bais',), 'lat': 9.5917, 'lng': 123.1222},
+    {'name': 'Tanjay', 'keywords': ('tanjay',), 'lat': 9.5167, 'lng': 123.1583},
+    {'name': 'Bayawan', 'keywords': ('bayawan',), 'lat': 9.3667, 'lng': 122.8000},
+    {'name': 'Canlaon', 'keywords': ('canlaon',), 'lat': 10.3833, 'lng': 123.2000},
+    {'name': 'La Carlota', 'keywords': ('la carlota', 'lacarlota'), 'lat': 10.4167, 'lng': 122.9167},
+    {'name': 'Guihulngan', 'keywords': ('guihulngan',), 'lat': 10.1167, 'lng': 123.2667},
+    {'name': 'Cebu', 'keywords': ('cebu',), 'lat': 10.3157, 'lng': 123.8854},
 ]
+
+# Each entry: (place keywords, lat, lng).
+ROUTE_TERMINAL_GPS = [(t['keywords'], t['lat'], t['lng']) for t in TERMINALS]
+
+# Average Ceres liner speed on the highway + road-vs-straight-line factor,
+# used for passenger arrival estimates.
+AVG_SPEED_KMH = 45
+SLOW_SPEED_KMH = 30
+ROAD_FACTOR = 1.3
+ARRIVED_KM = 1.5
+
+
+def haversine_km(lat1, lng1, lat2, lng2):
+    """Straight-line distance in kilometres between two coordinates."""
+    import math
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def estimate_arrival(bus_lat, bus_lng, dest_lat, dest_lng, movement_status=''):
+    """Estimate when a bus reaches a destination terminal.
+
+    Returns dict with minutes, eta datetime, display label and distance —
+    or None when coordinates are missing.
+    """
+    from datetime import timedelta
+    if None in (bus_lat, bus_lng, dest_lat, dest_lng):
+        return None
+    road_km = haversine_km(bus_lat, bus_lng, dest_lat, dest_lng) * ROAD_FACTOR
+    now = timezone.now()
+    if road_km < ARRIVED_KM:
+        return {'minutes': 0, 'eta': now, 'distance_km': round(road_km, 1),
+                'label': 'Arriving now', 'detail': 'Bus is at your terminal'}
+    speed = SLOW_SPEED_KMH if movement_status == Bus.MOVE_DELAYED else AVG_SPEED_KMH
+    minutes = int(round(road_km / speed * 60))
+    eta = now + timedelta(minutes=minutes)
+    hours, mins = divmod(minutes, 60)
+    label = f'~{hours} h {mins} min' if hours else f'~{mins} min'
+    return {'minutes': minutes, 'eta': eta, 'distance_km': round(road_km, 1),
+            'label': label, 'detail': f'About {round(road_km)} km away'}
+
+
+def terminal_by_name(name):
+    name = (name or '').strip().lower()
+    for t in TERMINALS:
+        if t['name'].lower() == name:
+            return t
+    return None
+
+
+def route_endpoints(route_text):
+    """Split a route like 'Kabankalan - Bacolod' into (from_terminal, to_terminal).
+
+    Returns (None, None) when fewer than two known terminals are found.
+    """
+    text = (route_text or '').lower()
+    hits = []
+    for t in TERMINALS:
+        for k in t['keywords']:
+            idx = text.find(k)
+            if idx >= 0:
+                hits.append((idx, t))
+                break
+    if len(hits) < 2:
+        return None, None
+    hits.sort(key=lambda h: h[0])
+    return hits[0][1], hits[-1][1]
+
+
+def terminal_json(t):
+    if not t:
+        return None
+    return {'name': t['name'], 'lat': t['lat'], 'lng': t['lng']}
 
 # Vallacar Bacolod hub — last-resort pin when the route matches no known terminal.
 HUB_LAT, HUB_LNG = 10.6765, 122.9509
@@ -97,7 +175,10 @@ def _bus_gps_payload(bus, occupied=None, use_fallback=False):
     is_approx = False
     if use_fallback and (lat is None or lng is None):
         lat, lng, is_approx = bus_map_coords(bus)
+    frm, to = route_endpoints(bus.route)
     return {
+        'route_from': terminal_json(frm),
+        'route_to': terminal_json(to),
         'id': bus.id,
         'bus_number': bus.bus_number,
         'plate_number': bus.plate_number,
@@ -295,6 +376,14 @@ def bus_map_page(request):
     with_gps = sum(1 for b in buses if b.latitude is not None and b.longitude is not None)
     for b in buses:
         b.map_latitude, b.map_longitude, b.is_approx = bus_map_coords(b)
+        _frm, _to = route_endpoints(b.route)
+        b.route_from, b.route_to = _frm, _to
+        dest = _to or _frm
+        b.eta = estimate_arrival(
+            b.map_latitude, b.map_longitude,
+            dest['lat'], dest['lng'], b.movement_status,
+        ) if dest else None
+        b.eta_dest = dest['name'] if dest else ''
     approx_count = sum(1 for b in buses if b.is_approx)
     # Distinct routes with a stable color each (for badges, markers, polylines)
     route_names = sorted({(b.route or '').strip() for b in buses if (b.route or '').strip()})
@@ -305,8 +394,8 @@ def bus_map_page(request):
         'buses': buses, 'with_gps': with_gps, 'approx_count': approx_count,
         'routes': [{'name': name, 'color': route_colors[name]} for name in route_names],
         'movement_choices': Bus.MOVEMENT_CHOICES,
-        # Vallacar / Bacolod default center when a bus has no GPS fix yet
-        'default_lat': 10.6765, 'default_lng': 122.9509,
+        # Philippines-wide default view (Bacolod hub zoom comes from fitBounds)
+        'default_lat': 12.8797, 'default_lng': 121.7740,
     })
 
 
@@ -350,3 +439,67 @@ def bus_gps_update_ajax(request, pk):
     payload = _bus_gps_payload(bus)
     payload['status'] = 'updated'
     return JsonResponse(payload)
+
+
+def passenger_eta_page(request):
+    """Public passenger board: going from A to B? See the assigned Ceres
+    liners on that route with estimated arrival — no more waiting all day.
+
+    Read-only and public (no login) so riders can check before leaving home.
+    """
+    from apps.trips.models import Trip
+
+    origin_name = request.GET.get('from', '').strip() or 'Kabankalan'
+    dest_name = request.GET.get('to', '').strip() or 'Bacolod'
+    origin = terminal_by_name(origin_name)
+    dest = terminal_by_name(dest_name)
+
+    results, error = [], None
+    today = timezone.localdate()
+    now = timezone.now()
+    if origin is None or dest is None:
+        error = 'Please select a valid origin and destination.'
+    elif origin['name'] == dest['name']:
+        error = 'Origin and destination must be different terminals.'
+    else:
+        buses = list(
+            Bus.objects.annotate(total_passengers=Count('passengers'))
+            .filter(status__in=[Bus.STATUS_ACTIVE, Bus.STATUS_MAINTENANCE])
+            .order_by('bus_number')
+        )
+        for b in buses:
+            text = f'{b.route or ""}'.lower()
+            if not (any(k in text for k in origin['keywords'])
+                    and any(k in text for k in dest['keywords'])):
+                continue
+            occupied = b.total_passengers or 0
+            lat, lng, is_approx = bus_map_coords(b)
+            eta = estimate_arrival(lat, lng, dest['lat'], dest['lng'], b.movement_status)
+            trip = (Trip.objects.filter(bus=b, scheduled_departure__date=today)
+                    .order_by('scheduled_departure'))
+            upcoming = trip.filter(scheduled_departure__gte=now).first() or trip.last()
+            trip_info = None
+            if upcoming:
+                dep = timezone.localtime(upcoming.scheduled_departure).strftime('%I:%M %p').lstrip('0')
+                arr = timezone.localtime(upcoming.scheduled_arrival).strftime('%I:%M %p').lstrip('0')
+                trip_info = {
+                    'scheduled': f'{dep} → {arr}',
+                    'status': upcoming.get_status_display(),
+                    'is_late': upcoming.status in (Trip.STATUS_DELAYED, Trip.STATUS_REROUTED, Trip.STATUS_UNEXPECTED_STOP),
+                    'delay': upcoming.delay_minutes,
+                }
+            results.append({
+                'bus_number': b.bus_number, 'plate_number': b.plate_number,
+                'route': b.route, 'current_location': b.current_location or b.route,
+                'movement_display': b.get_movement_status_display(),
+                'is_approx': is_approx, 'capacity': b.capacity,
+                'occupied': occupied, 'seats_left': max(0, b.capacity - occupied),
+                'eta': eta, 'trip': trip_info,
+            })
+        results.sort(key=lambda r: (r['eta'] is None, r['eta']['minutes'] if r['eta'] else 0))
+
+    return render(request, 'bus/eta.html', {
+        'terminals': TERMINALS, 'origin_name': origin['name'] if origin else origin_name,
+        'dest_name': dest['name'] if dest else dest_name,
+        'results': results, 'error': error, 'today': today, 'now': timezone.localtime(now),
+    })
