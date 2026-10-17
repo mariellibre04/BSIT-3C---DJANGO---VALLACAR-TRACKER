@@ -2,101 +2,156 @@
 {% block content %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
-  #live-map { height: 560px; z-index: 1; }
-  .lt-card { background:#fff; border:1px solid var(--tblr-border-color); border-radius:14px; box-shadow:var(--tblr-shadow-card); overflow:hidden; }
+  .eta-card { background:#fff; border:1px solid var(--tblr-border-color); border-radius:14px; box-shadow:var(--tblr-shadow-card); overflow:hidden; }
+  .eta-time { font-size:2rem; font-weight:800; letter-spacing:-.03em; line-height:1; color:#1c1e36; }
   .vt-btn-red { background:#C1121F; border-color:#C1121F; color:#fff; font-weight:700; }
   .vt-btn-red:hover { background:#a50e1b; border-color:#a50e1b; color:#fff; }
-  .route-badge { font-size:.68rem; font-weight:700; border-radius:6px; padding:.1rem .45rem; color:#fff; white-space:nowrap; }
-  .bus-card { cursor:pointer; border-left:3px solid transparent !important; }
-  .bus-card:hover { background:var(--tblr-bg-surface-secondary); }
-  .bus-card.active { background:rgba(193,18,31,.06); }
-  .bus-card.d-none { display:none !important; }
-  .dist-badge { font-size:.68rem; font-weight:700; border-radius:100rem; padding:.1rem .5rem; background:#DBEAFE; color:#1D4ED8; white-space:nowrap; }
-  .route-dot { display:inline-block; width:.7rem; height:.7rem; border-radius:50%; flex-shrink:0; }
-  .routes-menu { min-width:220px; }
-  .leaflet-popup-content b { color:#1c1e36; }
+  #live-map { height: 480px; z-index: 1; }
+  .pulse-dot { display:inline-block; width:.6rem; height:.6rem; border-radius:50%; background:#22c55e; box-shadow:0 0 0 0 rgba(34,197,94,.6); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0% { box-shadow:0 0 0 0 rgba(34,197,94,.55); } 70% { box-shadow:0 0 0 8px rgba(34,197,94,0); } 100% { box-shadow:0 0 0 0 rgba(34,197,94,0); } }
+  @media (max-width: 576px) { #live-map { height: 340px; } }
 </style>
 
 <div class="container-xl">
-  <div class="d-flex align-items-start justify-content-between flex-wrap gap-2 mb-3">
-    <div>
-      <h2 class="mb-0 fw-bold" style="letter-spacing:-.02em;">Live Tracking</h2>
-      <div class="text-muted small">Bus Station <span class="mx-1">&bull;</span> Map</div>
-    </div>
-    <div class="d-flex gap-2 flex-wrap">
-    <a href="{% url 'bus:passenger_eta' %}" class="btn vt-btn-red"><i class="fa-solid fa-clock me-1"></i> Passenger ETA</a>
-    <div class="dropdown">
-      <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="routesDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-        Routes <span class="badge bg-primary text-white ms-1" id="routesCount">{{ routes|length }}</span>
-      </button>
-      <div class="dropdown-menu dropdown-menu-end routes-menu p-2" aria-labelledby="routesDropdown">
-        {% for r in routes %}
-        <label class="dropdown-item d-flex align-items-center gap-2 rounded route-filter mb-1" style="cursor:pointer;">
-          <input type="checkbox" class="form-check-input route-check" value="{{ r.name }}" checked>
-          <span class="route-dot" style="background:{{ r.color }};"></span>
-          <span class="flex-grow-1">{{ r.name }}</span>
-        </label>
-        {% empty %}
-        <span class="dropdown-item-text text-muted small">No routes yet.</span>
-        {% endfor %}
-      </div>
-    </div>
-    </div>
+  <div id="eta-search" class="text-center mx-auto mb-3" style="max-width:60rem;scroll-margin-top:1rem;">
+    <div class="page-pretitle">Live GPS Tracking &bull; No login needed</div>
+    <h2 class="mb-1 fw-bold" style="letter-spacing:-.02em;">Track your Ceres bus in real time</h2>
+    <div class="text-muted">Waiting in <strong>{{ waiting_name }}</strong> for
+      <strong>{{ origin_name }}</strong> &rarr; <strong>{{ dest_name }}</strong>?
+      Watch the bus approach on the map, then book your seat when it is within reach.</div>
   </div>
 
-  <div id="liveAlert" class="alert alert-danger d-none" role="alert"></div>
+  <div class="eta-card p-3 mb-3">
+    <form method="GET" class="d-flex flex-column flex-md-row align-items-stretch align-items-md-end justify-content-center gap-2">
+      <div class="flex-grow-1">
+        <label class="form-label">From</label>
+        <select name="from" class="form-select">
+          {% for t in terminals %}<option value="{{ t.name }}" {% if t.name == origin_name %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="flex-grow-1">
+        <label class="form-label">To</label>
+        <select name="to" class="form-select">
+          {% for t in terminals %}<option value="{{ t.name }}" {% if t.name == dest_name %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="flex-grow-1">
+        <label class="form-label">I am waiting in</label>
+        <select name="waiting" class="form-select">
+          {% for t in terminals %}<option value="{{ t.name }}" {% if t.name == waiting_name %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn vt-btn-red"><i class="fa-solid fa-magnifying-glass me-1"></i> Check arrival</button>
+    </form>
+    <div class="text-muted small text-center mt-2">Estimates as of {{ now|date:"g:i A" }} &bull; auto-refreshes every minute &bull; based on live bus position and highway travel time.</div>
+  </div>
+
+  {% if error %}
+  <div class="alert alert-warning" role="alert">{{ error }}</div>
+  {% endif %}
+
+  {% if results %}
+  <div class="eta-card mb-3">
+    <div class="px-3 py-2 d-flex align-items-center gap-2 flex-wrap" style="border-bottom:1px solid var(--tblr-border-color);">
+      <span class="pulse-dot"></span>
+      <strong>Live map &mdash; buses heading to {{ waiting_name }}</strong>
+      <span class="text-muted small ms-auto">Green pin is where you are waiting</span>
+    </div>
+    <div id="live-map"></div>
+  </div>
+  {% endif %}
+
+  <div id="bookAlert"></div>
 
   <div class="row g-3">
-    <div class="col-lg-4">
-      <div class="lt-card">
-        <div class="d-flex align-items-center justify-content-between px-3 py-2" style="border-bottom:1px solid var(--tblr-border-color);">
-          <strong>Buses on route</strong>
-          <span class="badge bg-success-lt text-success" id="busesOnRouteCount">{{ buses|length }}</span>
-        </div>
-        <div class="list-group list-group-flush overflow-auto" style="max-height:560px;" id="routeBusList">
-          {% for b in buses %}
-          <div class="list-group-item bus-card d-flex gap-2 align-items-center" data-bus-id="{{ b.id }}" data-route="{{ b.route }}" data-lat="{{ b.map_latitude }}" data-lng="{{ b.map_longitude }}" style="border-left-color:{{ b.route_color }} !important;">
-            <span class="avatar avatar-sm rounded" style="background:{{ b.route_color }};color:#fff;"><i class="fa-solid fa-bus"></i></span>
-            <span class="min-w-0 flex-grow-1">
-              <span class="d-flex gap-2 align-items-baseline">
-                <strong>{{ b.bus_number }}</strong>
-                <small class="text-muted">{{ b.plate_number }}</small>
-              </span>
-              <span class="route-badge" style="background:{{ b.route_color }};">{{ b.route }}</span>
-            </span>
-            <span class="text-end">
-              {% if b.seats_left <= 0 %}
-              <span class="dist-badge" style="background:#FEE2E2;color:#991B1B;">Full</span>
-              {% else %}
-              <span class="dist-badge">{{ b.seats_left }} seats</span>
-              {% endif %}
-              <span class="d-block text-muted" style="font-size:.68rem;">{{ b.get_movement_status_display }}{% if b.is_approx %} &bull; approx. location{% endif %}</span>
-              <span class="d-block fw-semibold" style="font-size:.72rem;color:#1D4ED8;" data-eta-line="{{ b.id }}">{% if b.eta %}{% if b.eta.minutes > 0 %}Arrives {{ b.eta.eta|date:"g:i A" }} &bull; {{ b.eta.label }} left{% else %}Arriving now{% endif %}{% else %}&mdash;{% endif %}</span>
-            </span>
+    {% for r in results %}
+    <div class="col-md-6 col-lg-4">
+      <div class="eta-card p-3 h-100 d-flex flex-column gap-2">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <div class="fw-bold fs-3">{{ r.bus_number }}</div>
+            <div class="text-muted small text-uppercase">{{ r.plate_number }} &bull; {{ r.route }}</div>
           </div>
-          {% empty %}
-          <div class="p-4 text-center text-muted">No buses yet. <a href="{% url 'bus:bus_list' %}">Add one</a>.</div>
-          {% endfor %}
+          <div class="text-end">
+            {% if r.seats_free <= 0 %}
+            <span class="badge bg-danger text-white">FULL</span>
+            {% else %}
+            <span class="badge bg-success-lt text-success">{{ r.seats_free }} seats free</span>
+            {% endif %}
+            {% if r.nearby and r.seats_free > 0 %}
+            <span class="d-block mt-1"><span class="badge bg-success text-white"><span class="pulse-dot me-1" style="background:#fff;"></span>Bus nearby &mdash; book now</span></span>
+            {% endif %}
+          </div>
         </div>
+        <div class="eta-time">{{ r.eta_wait.label|default:"—" }}</div>
+        {% if r.eta_wait %}
+          {% if r.eta_wait.minutes > 0 %}
+          <div class="text-muted">Reaches <strong class="text-dark">{{ waiting_name }}</strong> around <strong class="text-dark">{{ r.eta_wait.eta|date:"g:i A" }}</strong> &bull; {{ r.eta_wait.detail }}</div>
+          {% else %}
+          <div class="text-success fw-semibold"><i class="fa-solid fa-circle-check me-1"></i>At your waiting place &mdash; head out now.</div>
+          {% endif %}
+        {% else %}
+        <div class="text-muted">No position available for this bus yet.</div>
+        {% endif %}
+        <div class="text-muted small"><i class="fa-solid fa-location-dot me-1" style="color:#C1121F;"></i>{{ r.current_location }} &bull; {{ r.movement_display }}{% if r.is_approx %} (approx.){% endif %}</div>
+        {% if r.eta_dest and r.eta_dest.minutes > 0 %}
+        <div class="text-muted small">Final arrival {{ dest_name }}: {{ r.eta_dest.eta|date:"g:i A" }}</div>
+        {% endif %}
+        {% if r.trip %}
+        <div class="small text-muted"><i class="fa-regular fa-clock me-1"></i>Scheduled {{ r.trip.scheduled }} &bull; {{ r.trip.status }}
+          {% if r.trip.is_late %}<span class="badge bg-danger-lt text-danger ms-1">+{{ r.trip.delay }} min late</span>{% endif %}
+        </div>
+        {% endif %}
+        {% if r.seats_free > 0 %}
+        <button type="button" class="btn vt-btn-red w-100 mt-auto book-btn"
+          data-bus-id="{{ r.bus_id }}" data-bus-number="{{ r.bus_number }}"
+          data-pickup="{{ waiting_name }}" data-max="{{ r.seats_free }}">
+          <i class="fa-solid fa-ticket me-1"></i> Book seat{% if r.seats_free != 1 %}s{% endif %} on {{ r.bus_number }}
+        </button>
+        {% endif %}
+        {% if is_admin %}
+        <button type="button" class="btn btn-sm btn-outline-secondary gps-btn" data-bus-id="{{ r.bus_id }}">
+          <i class="fa-solid fa-location-crosshairs me-1"></i> Update GPS
+        </button>
+        {% endif %}
       </div>
     </div>
-    <div class="col-lg-8">
-      <div class="lt-card">
-        <div class="px-3 py-2 d-flex align-items-center gap-2 flex-wrap" style="border-bottom:1px solid var(--tblr-border-color);">
-          <span class="badge bg-success-lt text-success"><span class="d-inline-block rounded-circle bg-success me-1" style="width:.5rem;height:.5rem;"></span>Live</span>
-          <span class="text-muted small" id="liveUpdatedLabel">Loading positions…</span>
-          <span class="text-muted small">({{ with_gps }} GPS &bull; {{ approx_count }} approx. route pins)</span>
-          <button class="btn btn-sm btn-outline-secondary ms-auto" id="resetViewBtn" title="Show the whole Philippines"><i class="fa-solid fa-earth-asia me-1"></i>Philippines</button>
-          <span class="d-flex gap-1 flex-wrap" id="routeLegend">
-            {% for r in routes %}<span class="d-inline-flex align-items-center gap-1 small text-muted"><span class="route-dot" style="background:{{ r.color }};"></span>{{ r.name|truncatechars:18 }}</span>{% endfor %}
-          </span>
-        </div>
-        <div id="live-map"></div>
+    {% empty %}
+    {% if not error %}
+    <div class="col-12">
+      <div class="eta-card p-5 text-center">
+        <div class="empty-icon mb-2"><i class="fa-solid fa-bus fa-2x text-muted"></i></div>
+        <p class="empty-title">No Ceres liner assigned to {{ origin_name }} &rarr; {{ dest_name }} right now</p>
+        <p class="empty-subtitle text-muted">Try another terminal pair, or check the <a href="{% url 'bus:passenger_eta' %}">Passenger ETA</a> board.</p>
       </div>
     </div>
+    {% endif %}
+    {% endfor %}
   </div>
 </div>
 
+<div class="modal modal-blur fade" id="bookModal" tabindex="-1">
+  <div class="modal-dialog modal-md modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="bookModalTitle">Book seats</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form id="bookForm">{% csrf_token %}
+      <input type="hidden" name="bus" id="book_bus_id">
+      <input type="hidden" name="pickup" id="book_pickup">
+      <div class="modal-body">
+        <div id="bookFormError" class="alert alert-danger d-none"></div>
+        <div id="bookSuccess" class="alert alert-success d-none"></div>
+        <div class="row g-3" id="bookFields">
+          <div class="col-12"><label class="form-label">Your name</label><input type="text" name="passenger_name" id="book_name" class="form-control" placeholder="e.g. Maria Santos" required></div>
+          <div class="col-6"><label class="form-label">Contact number</label><input type="text" name="contact" id="book_contact" class="form-control" placeholder="e.g. 0917 123 4567" required></div>
+          <div class="col-6"><label class="form-label">Seats</label><input type="number" name="seats" id="book_seats" class="form-control" min="1" value="1" required><div class="form-hint" id="bookSeatsHint"></div></div>
+          <div class="col-12 text-muted small">Boarding at <strong id="bookPickupLabel"></strong>. The driver / conductor will be notified of your booking. Free seat reservation &mdash; no payment needed.</div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn vt-btn-red" id="bookSubmitBtn">Confirm booking</button></div>
+    </form>
+  </div></div>
+</div>
+
+{% if is_admin %}
 <div class="modal modal-blur fade" id="gpsModal" tabindex="-1">
   <div class="modal-dialog modal-md modal-dialog-centered"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title" id="gpsModalTitle">Update GPS</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -118,233 +173,108 @@
     </form>
   </div></div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script id="eta-data" type="application/json">{{ map_json|safe }}</script>
 <script>
 (function() {
-  const DEFAULT_LAT = {{ default_lat }};
-  const DEFAULT_LNG = {{ default_lng }};
-  const PH_CENTER = [12.8797, 121.7740];
-  const PH_BOUNDS = [[3.5, 115.5], [21.5, 127.5]];
-  const ROUTE_COLORS = {
-    {% for r in routes %}'{{ r.name|escapejs }}': '{{ r.color }}'{% if not forloop.last %},{% endif %}{% endfor %}
-  };
-  const FALLBACK = '#C1121F';
-  const colorOf = (route) => ROUTE_COLORS[route] || FALLBACK;
-
-  // Philippines-wide view; buses pull the first view to their area, and the
-  // Philippines button always brings the whole country back.
-  const map = L.map('live-map', { minZoom: 5, maxBounds: PH_BOUNDS, maxBoundsViscosity: 0.7 }).setView([DEFAULT_LAT, DEFAULT_LNG], 6);
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community' }).addTo(map);
-  document.getElementById('resetViewBtn').addEventListener('click', function() { map.setView(PH_CENTER, 6); });
-
-  const markers = {};
-  const routeLines = {};
-  const sim = {}; // bus id -> live simulation state
-  const label = document.getElementById('liveUpdatedLabel');
-  const alertBox = document.getElementById('liveAlert');
-  const countBadge = document.getElementById('busesOnRouteCount');
-  const gpsModal = new bootstrap.Modal(document.getElementById('gpsModal'));
-  let activeRoutes = new Set(Object.keys(ROUTE_COLORS));
-  let firstFit = true;
-
-  function haversine(a, b, c, d) {
-    const r = 6371, p1 = a * Math.PI / 180, p2 = c * Math.PI / 180;
-    const dp = (c - a) * Math.PI / 180, dl = (d - b) * Math.PI / 180;
-    const h = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
-    return 2 * r * Math.asin(Math.sqrt(h));
-  }
-  function speedOf(movement) { return movement === 'delayed' ? 30 : 45; }
-  function fmtTime(d) {
-    let h = d.getHours(); const m = String(d.getMinutes()).padStart(2, '0');
-    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
-    return h + ':' + m + ' ' + ap;
-  }
-  function fmtLeft(mins) {
-    if (mins <= 1) return 'Arriving now';
-    const h = Math.floor(mins / 60), m = Math.round(mins % 60);
-    return h ? ('~' + h + ' h ' + m + ' min left') : ('~' + m + ' min left');
-  }
-  // Estimated arrival from a position to a terminal (mirrors server ETA math).
-  function etaTo(lat, lng, dest, movement) {
-    if (!dest || lat == null || lng == null) return null;
-    const km = haversine(lat, lng, dest.lat, dest.lng) * 1.3;
-    if (km < 1.5) return { minutes: 0, arrival: new Date(), dest: dest.name };
-    const minutes = Math.round(km / speedOf(movement) * 60);
-    return { minutes: minutes, arrival: new Date(Date.now() + minutes * 60000), dest: dest.name };
-  }
-  function arrivalLine(b, lat, lng) {
-    const dest = b.route_to || b.route_from;
-    const e = etaTo(lat, lng, dest, b.movement_status);
-    if (!e) return '&mdash;';
-    if (e.minutes <= 1) return 'Arriving now in ' + e.dest;
-    return 'Arrives ' + fmtTime(e.arrival) + ' &bull; ' + fmtLeft(e.minutes);
-  }
-  function popupHtml(b, lat, lng) {
-    return '<b>' + b.bus_number + '</b> (' + b.plate_number + ')<br>' +
-      '<i class="fa-solid fa-location-dot"></i> ' + (b.current_location || b.route) + '<br>' +
-      b.route + ' &bull; ' + b.movement_display + '<br>' +
-      '<span style="color:#1D4ED8;font-weight:700;">' + arrivalLine(b, lat == null ? b.latitude : lat, lng == null ? b.longitude : lng) + '</span><br>' +
-      b.passengers_count + '/' + b.capacity + ' aboard &bull; ' + b.available_seats + ' free<br>' +
-      (b.is_approx ? '<span class="badge bg-warning-lt text-warning mt-1">Simulated movement &mdash; no GPS fix yet</span><br>' : '') +
-      '<button class="btn btn-sm vt-btn-red mt-1" onclick="openGpsModal(' + b.id + ')">Update GPS</button>';
-  }
-  function busIcon(route, isApprox) {
-    const c = colorOf(route);
-    const border = isApprox ? '2px dashed #fff' : '2px solid #fff';
-    const opacity = isApprox ? '0.85' : '1';
-    return L.divIcon({ className: '', html: '<div style="background:' + c + ';color:#fff;border:' + border + ';opacity:' + opacity + ';border-radius:8px;min-width:30px;height:24px;padding:0 4px;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;box-shadow:0 4px 10px rgba(0,0,0,.35);white-space:nowrap;"><i class="fa-solid fa-bus me-1"></i><span class="bus-chip-label"></span></div>', iconSize: [34, 24], iconAnchor: [17, 12] });
-  }
-  // Simulated timetable: approx buses glide between their route endpoints and
-  // back, so the map is visibly live even before GPS hardware is installed.
-  function tripMinutes(s) {
-    if (!s.from || !s.to) return 0;
-    return Math.max(5, haversine(s.from.lat, s.from.lng, s.to.lat, s.to.lng) * 1.3 / speedOf(s.movement) * 60);
-  }
-  function animState(s) {
-    const period = Math.max(2 * tripMinutes(s), 10);
-    const cyc = (((Date.now() / 60000) + s.offsetMin) % period) / (period / 2); // 0..2
-    let p, heading;
-    if (cyc <= 1) { p = cyc; heading = s.to; } else { p = 2 - cyc; heading = s.from; }
-    return {
-      lat: s.from.lat + (s.to.lat - s.from.lat) * p,
-      lng: s.from.lng + (s.to.lng - s.from.lng) * p,
-      heading: heading
-    };
-  }
-  function drawRoutes(buses) {
-    Object.values(routeLines).forEach(l => map.removeLayer(l));
-    for (const k in routeLines) delete routeLines[k];
-    const byRoute = {};
-    buses.forEach(function(b) {
-      if (!activeRoutes.has(b.route)) return;
-      if (b.route_from && b.route_to) {
-        (byRoute[b.route] = byRoute[b.route] || { pts: {}, color: colorOf(b.route) });
-        byRoute[b.route].pts['a'] = [b.route_from.lat, b.route_from.lng];
-        byRoute[b.route].pts['b'] = [b.route_to.lat, b.route_to.lng];
-      } else if (b.latitude != null && b.longitude != null) {
-        (byRoute[b.route] = byRoute[b.route] || { pts: {}, color: colorOf(b.route) });
-        byRoute[b.route].pts[b.id] = [b.latitude, b.longitude];
-      }
-    });
-    Object.keys(byRoute).forEach(function(route) {
-      const pts = Object.values(byRoute[route].pts);
-      if (pts.length >= 2) {
-        routeLines[route] = L.polyline(pts, { color: byRoute[route].color, weight: 4, opacity: 0.75 }).addTo(map);
-      }
-    });
-  }
-  function draw(buses) {
-    const bounds = [];
-    const visible = buses.filter(b => activeRoutes.has(b.route));
-    // remove markers for hidden routes
-    Object.keys(markers).forEach(function(id) {
-      const stillVisible = visible.some(b => String(b.id) === String(id));
-      if (!stillVisible) { map.removeLayer(markers[id]); delete markers[id]; delete sim[id]; }
-    });
-    visible.forEach(function(b) {
-      if (b.latitude == null || b.longitude == null) return;
-      sim[b.id] = {
-        route: b.route, from: b.route_from, to: b.route_to,
-        isApprox: b.is_approx, movement: b.movement_status,
-        lat: b.latitude, lng: b.longitude,
-        offsetMin: (Number(b.id) * 53) % 60
-      };
-      const ll = [b.latitude, b.longitude];
-      bounds.push(ll);
-      const icon = busIcon(b.route, b.is_approx);
-      if (markers[b.id]) { markers[b.id].setLatLng(ll).setIcon(icon).setPopupContent(popupHtml(b)); }
-      else { markers[b.id] = L.marker(ll, { icon: icon }).addTo(map).bindPopup(popupHtml(b)); }
-      const el = markers[b.id].getElement();
-      if (el) { const s = el.querySelector('.bus-chip-label'); if (s) s.textContent = b.bus_number; }
-    });
-    drawRoutes(buses);
-    if (bounds.length && firstFit) { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 }); firstFit = false; }
-    label.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' \u2022 ' + visible.length + ' buses on selected routes';
-    countBadge.textContent = visible.length;
-    tick();
-  }
-  // Live tick every few seconds: glide simulated buses + refresh arrival countdowns.
-  function tick() {
-    Object.keys(sim).forEach(function(id) {
-      const s = sim[id];
-      if (!activeRoutes.has(s.route)) return;
-      let lat = s.lat, lng = s.lng, heading = s.to || s.from;
-      if (s.isApprox && s.from && s.to) {
-        const a = animState(s);
-        lat = a.lat; lng = a.lng; heading = a.heading;
-        if (markers[id]) markers[id].setLatLng([lat, lng]);
-      }
-      const line = document.querySelector('[data-eta-line="' + id + '"]');
-      if (line && heading) {
-        const e = etaTo(lat, lng, heading, s.movement);
-        line.innerHTML = e ? (e.minutes <= 1 ? 'Arriving now in ' + e.dest : 'Arrives ' + fmtTime(e.arrival) + ' &bull; ' + fmtLeft(e.minutes)) : '&mdash;';
-      }
-      if (markers[id] && markers[id].isPopupOpen()) {
-        const b = window._feedById && window._feedById[id];
-        if (b) markers[id].setPopupContent(popupHtml(b, lat, lng));
-      }
-    });
-  }
-  function load() {
-    fetch('{% url "bus:bus_locations_ajax" %}')
-      .then(r => r.json()).then(function(d) {
-        window._feedById = {};
-        (d.buses || []).forEach(b => { window._feedById[b.id] = b; });
-        draw(d.buses || []);
-      })
-      .catch(() => { alertBox.textContent = 'Could not refresh live positions.'; alertBox.classList.remove('d-none'); });
-  }
-  window.openGpsModal = function(id) {
-    fetch('/bus/ajax/get/' + id + '/').then(r => r.json()).then(function(b) {
-      document.getElementById('gps_bus_id').value = b.id;
-      document.getElementById('gpsModalTitle').textContent = 'Update GPS \u2014 ' + b.bus_number;
-      document.getElementById('gps_location').value = b.current_location || '';
-      document.getElementById('gps_lat').value = b.latitude == null ? '' : b.latitude;
-      document.getElementById('gps_lng').value = b.longitude == null ? '' : b.longitude;
-      document.getElementById('gps_movement').value = b.movement_status;
-      gpsModal.show();
-    });
-  };
-  // Route filter checkboxes
-  document.querySelectorAll('.route-check').forEach(function(box) {
-    box.addEventListener('change', function() {
-      activeRoutes = new Set(
-        Array.from(document.querySelectorAll('.route-check')).filter(c => c.checked).map(c => c.value)
-      );
-      document.getElementById('routesCount').textContent = activeRoutes.size;
-      document.querySelectorAll('.bus-card').forEach(function(card) {
-        card.classList.toggle('d-none', !activeRoutes.has(card.getAttribute('data-route')));
+  // Live map: bus pins + green waiting-place pin.
+  try {
+    const data = JSON.parse(document.getElementById('eta-data').textContent);
+    if (document.getElementById('live-map') && (data.buses.length || data.waiting)) {
+      const map = L.map('live-map', { minZoom: 5 }).setView([12.8797, 121.7740], 6);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' }).addTo(map);
+      const bounds = [];
+      data.buses.forEach(function(b) {
+        if (b.lat == null || b.lng == null) return;
+        const icon = L.divIcon({ className: '', html: '<div style="background:#C1121F;color:#fff;border:2px solid #fff;border-radius:8px;min-width:30px;height:24px;padding:0 4px;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;box-shadow:0 4px 10px rgba(0,0,0,.35);">' + b.bus_number + '</div>', iconSize: [40, 24], iconAnchor: [20, 12] });
+        L.marker([b.lat, b.lng], { icon: icon }).addTo(map)
+          .bindPopup('<b>' + b.bus_number + '</b><br>' + b.route + '<br>' + b.seats_free + ' seats free');
+        bounds.push([b.lat, b.lng]);
       });
-      load();
+      if (data.waiting) {
+        const w = data.waiting;
+        const wicon = L.divIcon({ className: '', html: '<div style="background:#22c55e;color:#fff;border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(0,0,0,.35);"><i class="fa-solid fa-person"></i></div>', iconSize: [30, 30], iconAnchor: [15, 15] });
+        L.marker([w.lat, w.lng], { icon: wicon }).addTo(map).bindPopup('<b>You are waiting here</b><br>' + w.name);
+        bounds.push([w.lat, w.lng]);
+      }
+      if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+    }
+  } catch (e) { /* map optional if data missing */ }
+
+  // Booking modal.
+  const bookModal = new bootstrap.Modal(document.getElementById('bookModal'));
+  const form = document.getElementById('bookForm');
+  const errBox = document.getElementById('bookFormError');
+  const okBox = document.getElementById('bookSuccess');
+  document.querySelectorAll('.book-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById('book_bus_id').value = btn.getAttribute('data-bus-id');
+      document.getElementById('book_pickup').value = btn.getAttribute('data-pickup');
+      document.getElementById('bookPickupLabel').textContent = btn.getAttribute('data-pickup');
+      document.getElementById('bookModalTitle').textContent = 'Book seats on ' + btn.getAttribute('data-bus-number');
+      const max = parseInt(btn.getAttribute('data-max'), 10) || 1;
+      const seats = document.getElementById('book_seats');
+      seats.max = max; seats.value = 1;
+      document.getElementById('bookSeatsHint').textContent = max + ' seat(s) left on this bus.';
+      errBox.classList.add('d-none'); okBox.classList.add('d-none');
+      document.getElementById('bookFields').classList.remove('d-none');
+      document.getElementById('bookSubmitBtn').classList.remove('d-none');
+      bookModal.show();
     });
   });
-  // Bus cards: click focuses the (moving) marker, double-click opens GPS editor
-  document.querySelectorAll('.bus-card').forEach(function(card) {
-    card.addEventListener('click', function() {
-      const id = card.getAttribute('data-bus-id');
-      document.querySelectorAll('.bus-card').forEach(c => { c.style.borderLeftColor = ''; c.classList.remove('active'); });
-      card.classList.add('active');
-      if (markers[id]) { map.setView(markers[id].getLatLng(), 13); markers[id].openPopup(); }
-      else { window.openGpsModal(id); }
-    });
-    card.addEventListener('dblclick', function() { window.openGpsModal(card.getAttribute('data-bus-id')); });
-  });
-  document.getElementById('gpsForm').addEventListener('submit', function(e) {
+  form.addEventListener('submit', function(e) {
     e.preventDefault();
-    const id = document.getElementById('gps_bus_id').value;
-    const err = document.getElementById('gpsFormError');
-    fetch('/bus/ajax/gps/' + id + '/', { method: 'POST', headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }, body: new FormData(this) })
+    fetch('{% url "bookings:booking_create_ajax" %}', { method: 'POST', headers: { 'X-CSRFToken': document.querySelector('#bookForm [name=csrfmiddlewaretoken]').value }, body: new FormData(form) })
       .then(r => r.json().then(d => ({ ok: r.ok, d: d }))).then(function(res) {
-        if (!res.ok) { err.textContent = res.d.error || 'Could not save.'; err.classList.remove('d-none'); return; }
-        gpsModal.hide(); load(); setTimeout(() => window.location.reload(), 600);
-      }).catch(() => { err.textContent = 'Something went wrong.'; err.classList.remove('d-none'); });
+        if (!res.ok) { errBox.textContent = res.d.error || 'Could not save booking.'; errBox.classList.remove('d-none'); return; }
+        const d = res.d;
+        let crew = 'The dispatcher has your booking on file.';
+        if (d.crew && d.crew.length) {
+          crew = d.crew.map(c => c.role + ' ' + c.name + (c.contact && c.contact !== '—' ? ' (' + c.contact + ')' : '')).join(' and ') + ' ha(s/ve) been notified — they will expect you at ' + d.pickup + '.';
+        }
+        document.getElementById('bookFields').classList.add('d-none');
+        document.getElementById('bookSubmitBtn').classList.add('d-none');
+        okBox.innerHTML = '<strong>Booked! Reference: ' + d.reference + '</strong><br>' +
+          d.seats + ' seat(s) on bus ' + d.bus_number + ', boarding at ' + d.pickup + '.<br>' + crew;
+        okBox.classList.remove('d-none');
+      }).catch(() => { errBox.textContent = 'Something went wrong. Please try again.'; errBox.classList.remove('d-none'); });
   });
-  load();
-  setInterval(load, 15000);
-  setInterval(tick, 3000);
+
+  // Admin-only: quick GPS update for a tracked bus.
+  const gpsModalEl = document.getElementById('gpsModal');
+  if (gpsModalEl) {
+    const gpsModal = new bootstrap.Modal(gpsModalEl);
+    window.openGpsModal = function(id) {
+      fetch('/bus/ajax/get/' + id + '/').then(r => r.json()).then(function(b) {
+        document.getElementById('gps_bus_id').value = b.id;
+        document.getElementById('gpsModalTitle').textContent = 'Update GPS \u2014 ' + b.bus_number;
+        document.getElementById('gps_location').value = b.current_location || '';
+        document.getElementById('gps_lat').value = b.latitude == null ? '' : b.latitude;
+        document.getElementById('gps_lng').value = b.longitude == null ? '' : b.longitude;
+        document.getElementById('gps_movement').value = b.movement_status;
+        gpsModal.show();
+      });
+    };
+    document.querySelectorAll('.gps-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() { window.openGpsModal(btn.getAttribute('data-bus-id')); });
+    });
+    document.getElementById('gpsForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const id = document.getElementById('gps_bus_id').value;
+      const err = document.getElementById('gpsFormError');
+      fetch('/bus/ajax/gps/' + id + '/', { method: 'POST', headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }, body: new FormData(this) })
+        .then(r => r.json().then(d => ({ ok: r.ok, d: d }))).then(function(res) {
+          if (!res.ok) { err.textContent = res.d.error || 'Could not save.'; err.classList.remove('d-none'); return; }
+          gpsModal.hide(); setTimeout(() => window.location.reload(), 400);
+        }).catch(() => { err.textContent = 'Something went wrong.'; err.classList.remove('d-none'); });
+    });
+  }
+
+  setTimeout(function() { window.location.reload(); }, 60000);
 })();
 </script>
 {% endblock %}

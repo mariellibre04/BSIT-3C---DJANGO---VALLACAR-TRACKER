@@ -5,7 +5,7 @@
       <div class="col-lg-auto ms-lg-auto">
         <ul class="list-inline list-inline-dots mb-0">
           <li class="list-inline-item">
-            <a href="{% url 'dashboard' %}" class="link-secondary text-decoration-none">
+            <a href="{% if user.is_authenticated %}{% url 'admin_dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}" class="link-secondary text-decoration-none">
               <i class="fas fa-bus me-1"></i> Vallacar Tracker
             </a>
           </li>

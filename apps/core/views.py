@@ -102,7 +102,7 @@ def _validate_registration_data(data):
 @require_http_methods(['GET', 'POST'])
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect('dashboard')
+        return redirect('admin_dashboard')
 
     failed_attempts, remaining = _get_lock_state(request)
     if remaining is not None:
@@ -119,7 +119,7 @@ def login_view(request):
     if user is not None:
         _reset_lock_state(request)
         login(request, user)
-        return redirect('dashboard')
+        return redirect('admin_dashboard')
 
     failed_attempts += 1
     request.session['failed_attempts'] = failed_attempts
@@ -138,8 +138,72 @@ def logout_view(request):
     return redirect('login')
 
 
+def welcome_view(request):
+    """Public landing: eye-catching passenger greeting with live fleet snapshot."""
+    from django.db.models import Count, Sum
+    from apps.bus.models import Bus
+
+    buses = Bus.objects.annotate(total_passengers=Count('passengers', distinct=True))
+    on_road = buses.filter(status=Bus.STATUS_ACTIVE).count()
+    routes = buses.values('route').distinct().count()
+    capacity = buses.aggregate(total=Sum('capacity'))['total'] or 0
+    occupied = sum(b.total_passengers or 0 for b in buses)
+    free_seats = max(0, capacity - occupied)
+    return render(request, 'welcome.html', {
+        'on_road': on_road,
+        'free_seats': free_seats,
+        'total_routes': routes,
+    })
+
+
+def dashboard(request):
+    """Passenger point of view (public).
+
+    No login needed: riders see the live fleet, free seats and estimated
+    arrivals, and can jump straight into the ETA board to plan a trip.
+    """
+    from django.db.models import Count
+    from apps.bus.models import Bus
+    from apps.bus.views import TERMINALS, bus_map_coords, estimate_arrival, route_endpoints
+
+    buses = list(
+        Bus.objects.annotate(total_passengers=Count('passengers')).order_by('bus_number')
+    )
+    free_seats = 0
+    on_road = 0
+    for b in buses:
+        occupied = b.total_passengers or 0
+        b.seats_left = max(0, (b.capacity or 0) - occupied)
+        b.occupancy_pct = int(round(occupied * 100.0 / b.capacity)) if b.capacity else 0
+        b.display_location = b.current_location or b.route
+        free_seats += b.seats_left
+        if b.status == Bus.STATUS_ACTIVE:
+            on_road += 1
+        lat, lng, b.is_approx = bus_map_coords(b)
+        _frm, _to = route_endpoints(b.route)
+        dest = _to or _frm
+        b.route_from, b.route_to = _frm, _to
+        b.eta = estimate_arrival(lat, lng, dest['lat'], dest['lng'], b.movement_status) if dest else None
+        b.eta_dest = dest['name'] if dest else ''
+
+    total_routes = len({(b.route or '').strip() for b in buses if (b.route or '').strip()})
+
+    return render(request, 'passenger_dashboard.html', {
+        'buses': buses,
+        'on_road': on_road,
+        'free_seats': free_seats,
+        'total_routes': total_routes,
+        'total_buses': len(buses),
+        'terminals': TERMINALS,
+    })
+
+
 @login_required(login_url='login')
-def home(request):
+def admin_dashboard(request):
+    """Admin point of view.
+
+    Signed-in staff get the full, scoped fleet-management dashboard.
+    """
     from django.db.models import Avg, Count, Sum
     from django.utils import timezone as dj_timezone
     from apps.scoping import (
@@ -151,10 +215,15 @@ def home(request):
     from apps.maintenance.models import MaintenanceRecord
     from apps.trips.models import Trip
 
-    buses_qs = scoped_buses(request.user).annotate(
+    buses_qs = scoped_buses(request.user)
+    drivers_qs = scoped_drivers(request.user)
+    incidents_qs = scoped_incidents(request.user)
+    maintenances_qs = scoped_maintenances(request.user)
+    trips_qs = scoped_trips(request.user)
+
+    buses_qs = buses_qs.annotate(
         total_passengers=Count('passengers', distinct=True)
     )
-    drivers_qs = scoped_drivers(request.user)
 
     total_buses = buses_qs.count()
     active_buses = buses_qs.filter(status=Bus.STATUS_ACTIVE).count()
@@ -191,7 +260,6 @@ def home(request):
         b.display_location = b.current_location or b.route
 
     today = dj_timezone.localdate()
-    trips_qs = scoped_trips(request.user)
     total_trips = trips_qs.count()
     delayed_trips = trips_qs.filter(status=Trip.STATUS_DELAYED).count()
     alert_trips = list(
@@ -205,21 +273,21 @@ def home(request):
     on_time_pct = round(completed_trips * 100.0 / total_trips, 1) if total_trips else 0
 
     open_incidents = list(
-        scoped_incidents(request.user).select_related('bus').filter(
+        incidents_qs.select_related('bus').filter(
             status__in=[Incident.STATUS_REPORTED, Incident.STATUS_RESPONDING]
         ).order_by('-created_at')[:5]
     )
-    open_incident_count = scoped_incidents(request.user).filter(
+    open_incident_count = incidents_qs.filter(
         status__in=[Incident.STATUS_REPORTED, Incident.STATUS_RESPONDING]
     ).count()
 
     overdue_maintenance = list(
-        scoped_maintenances(request.user).select_related('bus').filter(
+        maintenances_qs.select_related('bus').filter(
             status__in=[MaintenanceRecord.STATUS_SCHEDULED, MaintenanceRecord.STATUS_OVERDUE],
             next_due_date__lt=today,
         ).order_by('next_due_date')[:5]
     )
-    pending_maintenance = scoped_maintenances(request.user).exclude(
+    pending_maintenance = maintenances_qs.exclude(
         status=MaintenanceRecord.STATUS_COMPLETED
     ).count()
 
@@ -236,6 +304,7 @@ def home(request):
     alert_count = len(alert_trips) + open_incident_count + len(overdue_maintenance) + pending_booking_count
 
     context = {
+        'is_admin': True,
         'today': today,
         'total_buses': total_buses,
         'active_buses': active_buses,
@@ -268,7 +337,7 @@ def home(request):
 @require_http_methods(['GET', 'POST'])
 def register_view(request):
     if request.user.is_authenticated:
-        return redirect('dashboard')
+        return redirect('admin_dashboard')
 
     if request.method == 'GET':
         return render(request, 'auth/register.html')
@@ -294,4 +363,4 @@ def register_view(request):
         password=form_data['password'],
     )
     login(request, user)
-    return redirect('dashboard')
+    return redirect('admin_dashboard')

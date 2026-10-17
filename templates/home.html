@@ -59,13 +59,24 @@
       <span class="d-inline-block rounded-circle bg-success" style="width:.5rem;height:.5rem;"></span>
       {{ available_buses }} buses available now
     </span>
+    {% if is_admin %}
     <div class="d-flex align-items-center gap-2 text-muted">
       <i class="fa-regular fa-bell fs-3"></i>
       <span class="avatar avatar-sm rounded-circle" style="background:#C1121F;color:#fff;font-weight:700;">
-        {{ user.username|first|upper|default:"O" }}
+        {{ user.username|first|upper|default:"A" }}
       </span>
       <span class="small fw-semibold text-dark d-none d-lg-inline">Operations Admin <i class="fa-solid fa-chevron-down ms-1 text-muted"></i></span>
     </div>
+    {% else %}
+    <div class="d-flex align-items-center gap-2">
+      <span class="badge bg-warning-lt text-warning d-none d-md-inline-flex align-items-center gap-1">
+        <i class="fa-solid fa-user"></i> Passenger view
+      </span>
+      <a href="{% url 'login' %}" class="btn btn-sm vt-btn-red">
+        <i class="fa-solid fa-user-shield me-1"></i> Staff Sign in
+      </a>
+    </div>
+    {% endif %}
   </div>
 
   <!-- Dashboard Overview heading — like screenshot -->
@@ -73,7 +84,8 @@
     <div>
       <h2 class="mb-0 fw-bold" style="letter-spacing:-.02em;">Dashboard Overview</h2>
       <div class="text-muted small">
-        Welcome back! Here is the current fleet overview for {{ today|date:"F d, Y" }}.
+        {% if is_admin %}Welcome back!{% else %}Welcome, passenger!{% endif %}
+        Here is the current fleet overview for {{ today|date:"F d, Y" }}.
         Track &amp; locate where available buses currently are and how many seats are free inside.
       </div>
     </div>
@@ -262,6 +274,7 @@
     </div>
   </div>
 
+  {% if is_admin %}
   <!-- Booking requests: riders waiting for crew confirmation -->
   <div class="vt-table-card mt-3">
     <div class="d-flex align-items-center justify-content-between px-3 py-2" style="border-bottom:1px solid var(--tblr-border-color);">
@@ -277,6 +290,7 @@
       {% empty %}<div class="p-3 text-muted small">No pending bookings. Rider requests from the Passenger ETA board will appear here for the driver / conductor.</div>{% endfor %}
     </div>
   </div>
+  {% endif %}
 
   <!-- Dispatcher panels: delays, incidents, analytics -->
   <div class="row g-3 mt-1">
