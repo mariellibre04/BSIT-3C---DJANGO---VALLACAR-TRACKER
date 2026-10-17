@@ -14,9 +14,21 @@ class DashboardViewTests(TestCase):
         response = self.client.get(reverse('admin_dashboard'))
 
         self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('login'), response['Location'])
+
+    def test_non_staff_cannot_reach_admin_dashboard(self):
+        user = get_user_model().objects.create_user(username='passenger1', password='secret1234')
+
+        self.client.force_login(user)
+        response = self.client.get(reverse('admin_dashboard'))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], reverse('dashboard'))
 
     def test_admin_dashboard_renders_for_staff(self):
-        user = get_user_model().objects.create_user(username='dispatcher', password='secret1234')
+        user = get_user_model().objects.create_user(
+            username='dispatcher', password='secret1234', is_staff=True
+        )
 
         self.client.force_login(user)
         response = self.client.get(reverse('admin_dashboard'))
@@ -30,6 +42,53 @@ class DashboardViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'welcome.html')
+
+
+class AdminAuthFlowTests(TestCase):
+    def test_login_page_always_prompts_even_when_signed_in(self):
+        user = get_user_model().objects.create_user(username='rider3', password='secret1234')
+
+        self.client.force_login(user)
+        response = self.client.get(reverse('login'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'auth/login.html')
+
+    def test_staff_login_redirects_to_admin_dashboard(self):
+        get_user_model().objects.create_user(
+            username='admin2', password='secret1234', is_staff=True
+        )
+
+        response = self.client.post(
+            reverse('login'), {'username': 'admin2', 'password': 'secret1234'}
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], reverse('admin_dashboard'))
+
+    def test_passenger_login_redirects_to_passenger_dashboard(self):
+        get_user_model().objects.create_user(username='rider2', password='secret1234')
+
+        response = self.client.post(
+            reverse('login'), {'username': 'rider2', 'password': 'secret1234'}
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], reverse('dashboard'))
+
+    def test_registration_creates_non_staff_and_goes_to_passenger_dashboard(self):
+        response = self.client.post(reverse('register'), {
+            'username': 'newrider',
+            'first_name': 'New',
+            'last_name': 'Rider',
+            'email': 'newrider@example.com',
+            'password': 'secret1234',
+            'confirm_password': 'secret1234',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], reverse('dashboard'))
+        self.assertFalse(get_user_model().objects.get(username='newrider').is_staff)
 
 
 class LiveTrackingViewTests(TestCase):

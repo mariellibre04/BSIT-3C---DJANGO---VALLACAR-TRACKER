@@ -1,12 +1,13 @@
 from datetime import timedelta
+from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login, logout
-from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
@@ -99,11 +100,25 @@ def _validate_registration_data(data):
     return errors
 
 
+def admin_required(view):
+    """Gate staff-only pages.
+
+    Anonymous visitors are sent to the admin sign-in page; signed-in
+    passengers (non-staff) are bounced to the public passenger dashboard.
+    """
+    @wraps(view)
+    def _wrapped(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect(f"{reverse('login')}?next={request.get_full_path()}")
+        if not (request.user.is_staff or request.user.is_superuser):
+            messages.error(request, 'Administrator access only. Please sign in with an admin account.')
+            return redirect('dashboard')
+        return view(request, *args, **kwargs)
+    return _wrapped
+
+
 @require_http_methods(['GET', 'POST'])
 def login_view(request):
-    if request.user.is_authenticated:
-        return redirect('admin_dashboard')
-
     failed_attempts, remaining = _get_lock_state(request)
     if remaining is not None:
         messages.error(request, f'Too many failed attempts. Try again in {remaining} seconds.')
@@ -119,7 +134,10 @@ def login_view(request):
     if user is not None:
         _reset_lock_state(request)
         login(request, user)
-        return redirect('admin_dashboard')
+        if user.is_staff or user.is_superuser:
+            return redirect('admin_dashboard')
+        messages.info(request, 'Signed in as a passenger.')
+        return redirect('dashboard')
 
     failed_attempts += 1
     request.session['failed_attempts'] = failed_attempts
@@ -198,7 +216,7 @@ def dashboard(request):
     })
 
 
-@login_required(login_url='login')
+@admin_required
 def admin_dashboard(request):
     """Admin point of view.
 
@@ -337,7 +355,7 @@ def admin_dashboard(request):
 @require_http_methods(['GET', 'POST'])
 def register_view(request):
     if request.user.is_authenticated:
-        return redirect('admin_dashboard')
+        return redirect('admin_dashboard' if request.user.is_staff else 'dashboard')
 
     if request.method == 'GET':
         return render(request, 'auth/register.html')
@@ -363,4 +381,5 @@ def register_view(request):
         password=form_data['password'],
     )
     login(request, user)
-    return redirect('admin_dashboard')
+    messages.success(request, 'Account created. Welcome aboard!')
+    return redirect('dashboard')

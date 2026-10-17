@@ -35,13 +35,20 @@
         <form method="post">
           {% csrf_token %}
 
-          {% if messages %}
+          {% if user.is_authenticated %}
+          <div class="alert alert-info">
+            Currently signed in as <strong>{{ user.username }}</strong>.
+            <a href="{% url 'logout' %}" class="alert-link">Sign out</a> to use a different account.
+          </div>
+          {% endif %}
+
           {% for message in messages %}
+          {% if message.tags != 'success' %}
           <div id="error-message" class="alert alert-danger">
             {{ message }}
           </div>
-          {% endfor %}
           {% endif %}
+          {% endfor %}
           <div class="mb-3">
             <label class="form-label">Username</label>
             <input type="text" class="form-control" name="username" autocomplete="off" {% if locked %}disabled{% endif %}>
